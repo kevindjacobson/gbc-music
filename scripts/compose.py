@@ -2224,7 +2224,7 @@ class FormComposer:
                 elif hold_vib and fusion and self.rng.random() < 0.4:
                     cell += "^2"                                          # fusion: a trill on the arrival note
                 elif hold_vib:
-                    cell += "~1" if self.flavour == "ska" else "~"   # ska: depth 1 on the high arrival notes (listened)
+                    cell += "~1,3" if self.flavour == "ska" else "~"   # ska: depth 1 on the high arrival notes (listened)
             if row < 0:
                 pickup = cell
                 continue

@@ -385,7 +385,7 @@ measured in PyBoy on the cartridges, the measurements in `docs/DESIGN_NOTES.md`)
 **Modulation rules** (what to add, and what not to):
 
 - **Vibrato: delayed, on held notes only, and depth 1 above E5.** The depth is in period units, so `2` is about 5 cents
-  at C4 and about 25 cents at B5: a lead that lives at E5-B5 (ska horns, lifted choruses) takes `vib=1:3` and `~1` on its
+  at C4 and about 25 cents at B5: a lead that lives at E5-B5 (ska horns, lifted choruses) takes `vib=1:3` and `~1,3` on its
   arrival notes or it reads as detuned (listened). Lower leads take `vib=2:3`; let the driver add it after 12 frames; a
   16th-note run never vibrates. It needs a note that is still sounding: pair it with a pace-7 or step-0 envelope
   (`C7`, `C0`), not the 22-frame `C2` decay. Cell vibrato (`~3,2`) is for one expressive long note. Wide fast vibrato (`vib=4:1`)
