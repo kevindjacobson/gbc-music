@@ -1,0 +1,40 @@
+# {{TITLE}} ({{SLUG}}) -- standalone music player ROM (gbc-music skill), assembled by song_rom.py.
+#
+# Layout (written by song_rom.py)
+#   src/main.c            the player (title screen, song cycling, music_tick every frame)
+#   src/music.c, music.h  the driver, the same files a game ships
+#   src/music_data.c|h    compose.py compile output for the score(s)
+#   src/songs.h           song table + titles (generated)
+#   build/<slug>.gbc      the ROM
+#
+# GBDK_HOME must point at a GBDK-2020 install (contains bin/lcc). No png2asset step: the player has no art.
+
+ifndef GBDK_HOME
+$(error GBDK_HOME is not set. export GBDK_HOME=/path/to/gbdk (the directory that contains bin/lcc))
+endif
+
+SLUG      := {{SLUG}}
+ROM_TITLE := {{ROM_TITLE}}
+LCC       := $(GBDK_HOME)/bin/lcc
+# -Wm-yc: Game Boy Color (dual mode) header flag   -Wm-yn: cart title (<= 15 chars)
+# -Wl-yt0x1B -Wm-yoA -Wm-ya4 -autobank: MBC5 cart, auto ROM bank count, 4 SRAM banks, auto bank placement
+LCCFLAGS  := -Wa-l -Wl-m -Wl-j -Wm-yc -Wm-yn"$(ROM_TITLE)" -Wl-yt0x1B -Wm-yoA -Wm-ya4 -autobank
+
+SRC_C := $(wildcard src/*.c)
+OBJS  := $(patsubst src/%.c,obj/%.o,$(SRC_C))
+ROM   := build/$(SLUG).gbc
+
+.PHONY: all clean
+all: $(ROM)
+
+obj/%.o: src/%.c $(wildcard src/*.h) | obj
+	$(LCC) $(LCCFLAGS) -c -o $@ $<
+
+$(ROM): $(OBJS) | build
+	$(LCC) $(LCCFLAGS) -o $@ $(OBJS)
+
+obj build:
+	mkdir -p $@
+
+clean:
+	rm -rf obj build
