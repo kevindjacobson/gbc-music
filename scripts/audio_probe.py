@@ -2,12 +2,16 @@
 
 Runs the ROM several times with identical input (PyBoy is deterministic): once with the normal
 stereo mix (for the WAV) and once per channel with NR51 (0xFF25) forced to that channel alone
-after every frame, so each channel can be analysed on its own. Two measurement windows:
+after every frame, so each channel can be analysed on its own. A frame in which the ROM wrote NR51 itself (a pan
+change) is counted as a pan event: the probe reads the value the ROM wanted, keeps the soloed channel's own left /
+right bits from it for the following frames (so a panned channel is heard on its side in its solo pass) and reports
+`pan_events`, `pan_leak_frames` and `solo_reliable` (pan events under 5% of the frames). Two measurement windows:
   title  after --pre (default `wait:150`), --title-seconds of audio (default 3)
   play   after --script (default `press:start;wait:60`), --seconds of audio (default 10)
 Per window and channel: active frames (RMS above a floor), distinct pitches (autocorrelation pitch
 per frame, rounded to MIDI), pitch changes, note onsets, arpeggio runs (the pitch stepping every 2..6
-frames through >= 3 notes: the chord-cycle idiom), drum hits on the noise channel. `music_detected`
+frames through >= 3 notes: the chord-cycle idiom), drum hits on the noise channel, and a `stereo` block (left /
+right RMS of the channel's solo pass, their ratio, and the side it sat on: L, R, C or moving). `music_detected`
 means >= 2 channels active over >= 15% of the window and >= 8 pitch changes on the tonal channels
 (not one static tone). `music_during_gameplay` is the play window's music_detected.
 
@@ -40,6 +44,7 @@ NAMES = ("pulse1", "pulse2", "wave", "noise")
 NR51 = 0xFF25
 NR52 = 0xFF26
 ACTIVE_RATIO = 0.15
+PAN_RELIABLE_RATIO = 0.05   # pan events (frames the ROM rewrote NR51) under this share of the frames keep the solo passes reliable
 MIN_PITCH_CHANGES = 8
 MIN_CHANNELS = 2
 ARP_STEP = (2, 6)      # frames per note for an arpeggio run
@@ -92,9 +97,12 @@ class Run:
             self.samples_ok = False
         self.pb.set_emulation_speed(0)
         self.solo = solo
-        self.mask = 0x11 << solo if solo is not None else None
+        self.solo_bits = 0x11 << solo if solo is not None else None   # the soloed channel's two NR51 bits
+        self.mask = self.solo_bits                                      # what the probe writes before each frame
+        self.rom_nr51 = 0xFF                                            # the ROM's own last NR51 value (its pan state)
         self.overrides = 0
         self.frames = 0
+        self.apu_on = False                                             # NR52 bit 7 at the end of the previous frame
         self.held: set[str] = set()
 
     def tick(self, collect: list | None, regs: list | None) -> None:
@@ -102,8 +110,15 @@ class Run:
             self.pb.memory[NR51] = self.mask
         self.pb.tick(1, False, True)
         self.frames += 1
-        if self.mask is not None and (self.pb.memory[NR51] & 0xFF) != self.mask:
-            self.overrides += 1
+        apu_now = bool(self.pb.memory[NR52] & 0x80)
+        if self.mask is not None:
+            v = self.pb.memory[NR51] & 0xFF
+            if v != self.mask:                                          # the ROM wrote NR51 this frame: a pan event
+                if collect is not None and self.apu_on and apu_now:     # counted inside the measured windows only, not the APU power-up
+                    self.overrides += 1
+                self.rom_nr51 = v
+                self.mask = v & self.solo_bits                          # keep the channel's own side from now on
+        self.apu_on = apu_now
         if collect is not None:
             if self.samples_ok:
                 try:
@@ -207,6 +222,27 @@ def _note_name(n: int) -> str:
     return ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][n % 12] + str(n // 12 - 1)
 
 
+def stereo_block(frames: list[np.ndarray], active: np.ndarray | None = None) -> dict:
+    """Left / right RMS of a pass and the side it sat on: per frame L (right silent), R (left silent) or C; `side`
+    is the dominant one over the active frames, or `moving` when two sides each hold >= 20% of them."""
+    L = np.array([float(np.sqrt(np.mean((f[:, 0] - f[:, 0].mean()) ** 2))) if f.ndim == 2 and f.shape[0] else 0.0 for f in frames])
+    R = np.array([float(np.sqrt(np.mean((f[:, 1] - f[:, 1].mean()) ** 2))) if f.ndim == 2 and f.shape[0] else 0.0 for f in frames])
+    if active is None:
+        active = (L + R) > max(0.7, 0.04 * float((L + R).max() if len(L) else 0.0))
+    n = int(active.sum())
+    sides = {"L": 0, "R": 0, "C": 0}
+    for i in np.flatnonzero(active):
+        l, r = L[i], R[i]
+        sides["L" if r < 0.1 * l else "R" if l < 0.1 * r else "C"] += 1
+    frac = {k: round(v / n, 3) if n else 0.0 for k, v in sides.items()}
+    dominant = max(sides, key=sides.get) if n else "C"
+    side = "moving" if n and sum(1 for v in sides.values() if v >= 0.2 * n) >= 2 else dominant
+    left, right = float(L[active].mean()) if n else 0.0, float(R[active].mean()) if n else 0.0
+    return {"left_rms": round(left, 2), "right_rms": round(right, 2),
+            "balance": round((right - left) / (right + left), 3) if right + left > 0 else 0.0,
+            "side": side, "frames": {"L": sides["L"], "R": sides["R"], "C": sides["C"]}, "ratio": frac}
+
+
 def analyse_channel(frames: list[np.ndarray], rate: int, tonal: bool, wide: bool = False) -> dict:
     """Per-frame activity, pitch and onset analysis for one solo channel. `wide` widens the pitch window to
     two frames (the wave bass reaches 32 Hz; pulses change pitch every 3 frames in an arpeggio and use one)."""
@@ -260,6 +296,7 @@ def analyse_channel(frames: list[np.ndarray], rate: int, tonal: bool, wide: bool
         out["notes"] = [int(n) for n in notes]   # for the piano roll; trimmed from the report later
     else:
         out["hits"] = onsets
+    out["stereo"] = stereo_block(frames, active)
     return out
 
 
@@ -412,8 +449,11 @@ def probe(rom: Path, out: Path, *, pre: str, script: str, title_s: float, play_s
     report["frames_emulated"] = passes[None][5]
     if samples:
         overrides = sum(passes[s][4] for s in (0, 1, 2, 3))
+        per_pass = max(passes[s][4] for s in (0, 1, 2, 3))
         report["panning_overridden_frames"] = overrides
-        report["solo_reliable"] = overrides < 0.1 * (title_frames + play_frames) * 4
+        report["pan_events"] = per_pass                  # measured frames in which the ROM rewrote NR51 (one solo pass; every pass sees the same writes)
+        report["pan_leak_frames"] = overrides            # the same over the four solo passes: frames in which another channel may have leaked in
+        report["solo_reliable"] = per_pass < PAN_RELIABLE_RATIO * max(1, title_frames + play_frames)
         windows = []
         for wname, idx, secs in (("title", 0, title_s), ("play", 2, play_s)):
             chs = [analyse_channel(passes[c][idx], rate, tonal=(c < 3), wide=(c == 2)) for c in range(4)]
@@ -422,6 +462,7 @@ def probe(rom: Path, out: Path, *, pre: str, script: str, title_s: float, play_s
             rms = np.array([float(np.sqrt(np.mean((f.mean(axis=1) - f.mean()) ** 2))) if f.shape[0] else 0.0 for f in nz])
             chs[3]["rms_curve"] = [float(v / rms.max()) if rms.max() > 0 else 0.0 for v in rms]
             report[wname] = window_summary(chs, len(passes[None][idx]), secs)
+            report[wname]["stereo"] = stereo_block(passes[None][idx])   # the full mix
             windows.append((wname, chs, passes[None][idx]))
         report["music_detected"] = bool(report["title"]["music_detected"] or report["play"]["music_detected"])
         report["music_during_gameplay"] = bool(report["play"]["music_detected"])

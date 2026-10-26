@@ -6,9 +6,10 @@
  * NRx1 duty bits can be rewritten any time without re-striking (duty sequences); NRx2 only takes effect on a
  * trigger, so pulse volume changes (FX_VOL, tremolo) come with a re-strike; NR32 on the wave channel does
  * not (level steps are the wave channel's click-free dynamics). Wave RAM can only be rewritten with NR30 = 0
- * (the channel's DAC off) and the channel must then be re-triggered. The driver never touches NR50/NR51/NR52
- * (sfx_init owns them) and never uses the hardware sweep NR10 (pulse 1 only, keeps running across notes,
- * fights re-triggers): every pitch movement here is software on NRx3/NRx4, which all four tonal uses share.
+ * (the channel's DAC off) and the channel must then be re-triggered. The driver never touches NR50/NR52
+ * (sfx_init owns them); NR51 (panning) it owns through a shadow byte (music_set_pan_base & the music's pans, see
+ * music.h), written only when the value changes. It never uses the hardware sweep NR10 (pulse 1 only, keeps running
+ * across notes, fights re-triggers): every pitch movement here is software on NRx3/NRx4, which all four tonal uses share.
  *
  * Cost: music_tick is a few hundred cycles on a quiet frame and about 1.5k-3k cycles when all four channels
  * move (the measured figure is in research_notes/gb-timbre-modulation); the wave-table step (16-byte copy)
@@ -55,6 +56,7 @@ typedef struct {
     uint8_t seq_done;  /* wave one-shot sequence finished */
     uint8_t wl;        /* wave: current NR32 level code 1 (full) .. 3 (quarter) */
     uint8_t wenv_t;    /* wave: frames until the next level step */
+    uint8_t apan_t;    /* pulse: frames until the instrument's auto-pan flips side */
     uint8_t gl_rem;    /* glide (bend / portamento / pitch envelope): frames left */
     int16_t gl_cur;    /* glide: current period offset, reaches 0 when the glide lands */
     int16_t gl_step;   /* glide: per-frame change of gl_cur */
@@ -77,8 +79,34 @@ static uint8_t echo;               /* ch2 FX_ECHO param, 0 = off */
 static uint8_t frame_i;
 static RingSlot ring[RING];
 static uint8_t cur_wave = 0xFF;    /* wave shape currently in wave RAM */
+static uint8_t pan_base = 0xFF;    /* the game's NR51 mask (music_set_pan_base) */
+static uint8_t pan_music = 0xFF;   /* the music's own pans, NR51 layout (bits 0-3 right, 4-7 left) */
+static uint8_t pan_last;           /* NR51 value last written by the driver (0 = never) */
+static uint8_t pan_dirty;          /* the shadow changed: write NR51 at the end of the tick */
+static uint8_t echo_side;          /* the echo cell set pulse 2's side: put it back to both when the echo ends */
+static uint8_t pan_ch[2];          /* current side of each pulse channel (MUSIC_PAN_R / L / C) */
+static const uint8_t PAN_BITS[2][4] = { { 0x00, 0x01, 0x10, 0x11 }, { 0x00, 0x02, 0x20, 0x22 } };   /* [channel][side] -> NR51 bits */
+static const uint8_t HOLD_BITS[NCH] = { 0x11, 0x22, 0x44, 0x88 };
 
 /* ---- register helpers ---------------------------------------------------------------------------- */
+
+/* NR51 = base & music pans; a channel held by an SFX keeps the bits the SFX left in the register. One write, and
+ * only when the value differs from the last one written (the probe counts every write as a pan event). */
+static void pan_apply(void) {
+    uint8_t v = (uint8_t)(pan_base & pan_music);
+    uint8_t held = 0, c;
+    for (c = 0; c != NCH; c++) if (ch[c].hold) held |= HOLD_BITS[c];
+    if (held) v = (uint8_t)((uint8_t)(v & (uint8_t)~held) | (uint8_t)(NR51_REG & held));
+    pan_dirty = 0;
+    if (v != pan_last) { NR51_REG = v; pan_last = v; }
+}
+
+/* Pulse channel c (0 or 1) to `side` (MUSIC_PAN_R / L / C) in the music's pans; NR51 follows at the end of the tick. */
+static void set_pan(uint8_t c, uint8_t side) {
+    pan_ch[c] = side;
+    pan_music = (uint8_t)((uint8_t)(pan_music & (uint8_t)~PAN_BITS[c][3]) | PAN_BITS[c][side]);
+    pan_dirty = 1;
+}
 
 static uint8_t scaled(uint8_t v) {
     return (uint8_t)(((uint8_t)(v * (uint8_t)(mvol + 1))) >> 4);
@@ -210,6 +238,11 @@ static void note_on(uint8_t c, uint8_t note) {
     k->gl_rem = 0;
     k->gl_cur = 0;
     if (c == 2) { k->seq_i = 0; k->seq_t = (uint8_t)(in->mod & 0x07); k->seq_done = 0; }   /* a wave sequence restarts per note; pulse duty sequences keep rotating */
+    else if (in->wave) {                                 /* pulse instrument pan: a side per note, or an auto-pan that starts left */
+        if (in->wave & 0x03) set_pan(c, (uint8_t)(in->wave & 0x03));
+        k->apan_t = (uint8_t)(in->wave >> 2);
+        if (k->apan_t) set_pan(c, MUSIC_PAN_L);
+    }
     if (k->fx == MUSIC_FX_BEND) {
         uint8_t n = (uint8_t)(k->param >> 4);
         int8_t so = (int8_t)(k->param & 0x0F);
@@ -232,7 +265,10 @@ static void read_row(void) {
         uint8_t fx = (uint8_t)(cell[1] & 0x0F);
         uint8_t param = cell[2];
         uint8_t trig = 0;
+        uint8_t pan = 0;
 
+        if (c < 2 && (note & MUSIC_PAN_NOTE) && note != MUSIC_OFF) { pan = (uint8_t)(note & 0x03); note = 0; }   /* pan pseudo-note (pulse lanes; a drum stack also uses bit 7) */
+        if (fx == MUSIC_FX_PAN) pan = (uint8_t)(param & 0x03);
         if (inst) {
             k->inst = (uint8_t)(inst - 1);
             k->vol = (uint8_t)(song->instruments[k->inst].env >> 4);
@@ -244,6 +280,8 @@ static void read_row(void) {
             echo = param;
             k->note = 0;
             if (!param && !k->hold) silence(c);
+            if (echo_side && !param) { set_pan(1, MUSIC_PAN_C); echo_side = 0; }   /* the echo's side ends with the echo */
+            if (param && pan) echo_side = 1;
         }
         if (fx == MUSIC_FX_CUT) k->cut = (uint8_t)(param ? param : 1);
 
@@ -259,11 +297,15 @@ static void read_row(void) {
                 k->note = d;
                 if (d && !k->hold) strike_drum(d);
             } else {
+                if (c == 1 && echo) {           /* a real ch2 note ends echo mode (and its side) */
+                    echo = 0;
+                    if (echo_side) { set_pan(1, MUSIC_PAN_C); echo_side = 0; }
+                }
                 note_on(c, note);
                 trig = 1;
-                if (c == 1 && echo) echo = 0;   /* a real ch2 note ends echo mode */
             }
         }
+        if (pan && c < 2) set_pan(c, pan);      /* the cell's own pan wins over the instrument's */
         if (trig && !k->hold) strike(c, period_of(c, note));
     }
 }
@@ -364,6 +406,10 @@ static void update_timbre(uint8_t c) {
     Chan *k = &ch[c];
     const Instrument *in = &song->instruments[k->inst];
     uint8_t rate = (uint8_t)(in->mod & 0x07);
+    if (c != 2 && (in->wave & 0xFC)) {           /* pulse auto-pan: flip the side every (wave >> 2) frames */
+        if (k->apan_t > 1) k->apan_t--;
+        else { k->apan_t = (uint8_t)(in->wave >> 2); set_pan(c, (uint8_t)(pan_ch[c] == MUSIC_PAN_L ? MUSIC_PAN_R : MUSIC_PAN_L)); }
+    }
     if (rate && !(c == 2 && k->seq_done)) {
         if (k->seq_t) k->seq_t--;
         else {
@@ -476,11 +522,15 @@ void music_init(const Song *s) {
         k->note = 0; k->inst = 0; k->vol = 15; k->hwvol = 15; k->fx = 0; k->param = 0;
         k->arp_idx = 0; k->arp_t = 0; k->vib_phase = 0; k->held = 0; k->hold = 0; k->cut = 0;
         k->stack = 0; k->stack_t = 0; k->stage = 0; k->stage_t = 0; k->sounding = 0;
-        k->seq_i = 0; k->seq_t = 0; k->seq_done = 0; k->wl = 1; k->wenv_t = 0;
+        k->seq_i = 0; k->seq_t = 0; k->seq_done = 0; k->wl = 1; k->wenv_t = 0; k->apan_t = 0;
         k->gl_rem = 0; k->gl_cur = 0; k->gl_step = 0; k->slide = 0; k->period = 0;
     }
     for (c = 0; c != RING; c++) { ring[c].vol = 0; ring[c].trig = 0; ring[c].period = 0; }
     echo = 0;
+    echo_side = 0;
+    pan_music = 0xFF;                            /* every channel back to both outputs */
+    pan_ch[0] = MUSIC_PAN_C; pan_ch[1] = MUSIC_PAN_C;
+    pan_apply();
     order_i = 0; row_i = 0; row_frame = 0; frame_i = 0;
     cur_wave = 0xFF;
     if (!s) return;
@@ -493,6 +543,15 @@ void music_stop(void) {
     for (c = 0; c != NCH; c++) silence(c);
     song = 0;
     echo = 0;
+    echo_side = 0;
+    pan_music = 0xFF;
+    pan_ch[0] = MUSIC_PAN_C; pan_ch[1] = MUSIC_PAN_C;
+    pan_apply();
+}
+
+void music_set_pan_base(uint8_t mask) {
+    pan_base = mask;
+    pan_apply();
 }
 
 void music_set_volume(uint8_t vol) {
@@ -518,6 +577,8 @@ void music_tick(void) {
         if (k->hold) {
             k->hold--;
             if (k->hold == 0) {
+                pan_last = NR51_REG;             /* the SFX may have written NR51: put the shadow back */
+                pan_dirty = 1;
                 if (c == 3) { k->sounding = 0; }
                 else if (c == 1 && echo) { k->sounding = 0; }
                 else if (k->note) { if (c == 2) cur_wave = 0xFF; strike(c, k->period); }
@@ -530,6 +591,7 @@ void music_tick(void) {
     update_tonal(1);
     update_tonal(2);
     update_noise();
+    if (pan_dirty) pan_apply();
     row_frame++;
     if (row_frame >= song->frames_per_row) advance_row();
     frame_i++;

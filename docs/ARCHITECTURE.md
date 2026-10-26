@@ -86,14 +86,22 @@ the bend decisions, so `--bend` never changes the notes). The stages, in order:
 5. **Lift** (`--lift fifth|sixth|octave`, default fifth): how far the chorus, the C section, the final A or the
    second blues head sits above the verse. Applied at generation (it sets that section's lead centre); the RPG
    corpus's second-section lifts span 1-8 semitones, so a fifth is the default and the octave the maximum.
-6. **Organic layer** (`--organic 0|1|2|3`, `apply_organic()`): a seeded, deterministic post-pass on the finished
+6. **Phrase grammar** (`--phrases 0|1|2`, `make_bank()` / `FormComposer.bank()`, pop / rock / chip forms): with 0 a
+   section is one two-bar motif and its variants (restatement, transposition, cadence). With 1 each section composes
+   from a bank of three ideas made together, statement / answer / departure, whose rhythms are eight beat cells of
+   onset, hold and key-off (`BEAT_CELLS`): rests are part of the idea; the answer keeps half of the statement's cells
+   and inverts its contour, the departure reverses it; densities per role (`PHRASE_DENSITY`) write the arc in; a
+   stage B / C section quotes the previous section's answer a step away; pulse 2 answers a phrase that ends early
+   (`put_response()`, pad bars only); answer phrases take `lead2`. With 2 repeated sections re-order their bank and
+   restatements thin. The grammar draws from its own seeded stream (`prng`), so 0 is byte-identical.
+7. **Organic layer** (`--organic 0|1|2|3`, `apply_organic()`): a seeded, deterministic post-pass on the finished
    score. 1 = repeats on phrase ends vary, phrase-end breaths, a fill closes every section, off-beat `v` accents, a
    lead colour per section, a second bass table in B sections; 2 = + half of all repeats vary (an inner note too),
    mid-phrase breaths, dropped hats, pulse 2 sits out one bar in 16, bass anticipations as plucks, lead stab pairs on
    repeated notes, bass table alternation on octave bounces, the RPG kit in B sections (plain texture); 3 = + density
    ebbs in bars 3 and 7 of a section. Harmony, tempo, form, bends and `loop:` are untouched; the moves are counted in
    the report (`organic_moves`) and named in the score's header comment.
-7. **Timbre plan** (`apply_timbre_plan()`, part of `--organic`): the instruments the organic levels switch to,
+8. **Timbre plan** (`apply_timbre_plan()`, part of `--organic`): the instruments the organic levels switch to,
    following the measured cartridge habits in `DESIGN_NOTES.md`. It emits `inst` lines only when used (15 per song
    cap) with fixed names: `lead_round` (`pulse duty=50 env=C7 vib=2:3`), `lead_bright` (`duty=25`), `lead_shimmer`
    (`duty=50,25 rate=2`), `lead_stab` (`duty=50 env=F3`), `bass_b` (`wave vol=12 shape=organ2`), `bass_pluck`
@@ -105,8 +113,9 @@ the bend decisions, so `--bend` never changes the notes). The stages, in order:
 
 The generated score is compiled once as a self-check before it is written, and the report carries the plan
 (`form`, `texture`, `lift`, `progression`, `numerals`, `chords`, `progressions`, `mode`, `loop_bar`, `plan` with one
-entry per section: `section`, `role`, `start_bar`, `bars`, `numerals`, `chords`; `organic` and `organic_moves` when
-set) next to the compile report.
+entry per section: `section`, `role`, `start_bar`, `bars`, `numerals`, `chords`; `phrases`, `banks` ({section:
+{s, a, d: beat cells}}) and `pulse2_answers` for a formed song; `organic` and `organic_moves` when set) next to the
+compile report.
 
 `compose.py split` writes one score per part (lanes kept, the rest silenced, header shared) for multi-ROM pieces
 played in lockstep. `compose.py events <score>... --out events.json [--offset s] [--fps 59.7275]` writes every note
@@ -127,7 +136,10 @@ analysed on its own. Two windows: `title` after `--pre` (default `wait:150`) and
 pitch changes, onsets, arpeggio runs (>= 6 pitch changes spaced 2-6 frames apart through >= 3 notes), drum hits on
 noise. `music_detected` = at least two channels active over 15% of the window and at least 8 pitch changes on the
 tonal channels. Outputs: `audio_report.json`, `audio.wav` (the play window), `pianoroll.png` (pitch per channel over
-time, noise as hits). `solo_reliable: false` means the game rewrites NR51 every frame and the per-channel numbers
+time, noise as hits). A frame in which the ROM itself wrote NR51 is a pan event (`pan_events`; `pan_leak_frames` over
+the four passes); the probe then keeps the soloed channel's own left / right bits, so a panned channel is heard on its
+side in its pass and every channel carries a `stereo` block (left / right RMS, balance, side L / R / C / moving) next
+to the window's full-mix `stereo`. `solo_reliable: false` means the ROM rewrote NR51 in more than 5% of the frames and the per-channel numbers
 are approximate.
 
 ## 5. Listening pages

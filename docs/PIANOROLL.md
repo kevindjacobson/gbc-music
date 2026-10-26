@@ -38,8 +38,14 @@ One note:
  (the second note of a 32nd pair), "bend": [semitones, frames], "porta": frames + "porta_from": previous midi,
  "slide": period units per frame, "vib": [depth, rate], "autovib": [depth, delay frames], "trem": [depth, rate],
  "penv": [semitones, frames], "cut": frames, "echo": true (a pulse-2 copy of a pulse-1 note made by FX_ECHO:
- delayed by the echo's frames, quieter by its drop)}
+ delayed by the echo's frames, quieter by its drop), "pan": -1 left / 1 right / "LR" (+ "pan_f": frames per side)
+ for a note on one side (absent when centre)}
 ```
+
+When the song pans, the file also carries a top-level `pan_changes` list (`[{ch 0|1, f, t, pan -1|0|1}]`, every side
+change of a pulse channel); the roll then draws a bright wedge on the panned edge of each note (both edges for an
+auto-pan) and a thin L / R strip above the noise lane with each pulse channel's side over time. A song without pans
+has neither key and draws as before.
 
 `t = offset + f / fps`, `d = fd / fps`. `d` is the gate: until the lane's next note, key-off or cut. A note whose
 envelope dies earlier carries `dec`; the roll draws the solid part for `min(d, dec)` and the rest faded.

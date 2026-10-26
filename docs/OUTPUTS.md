@@ -10,11 +10,11 @@ The driver is two files and the song is two generated files. Nothing else is req
 1. Copy `scripts/music.c` and `scripts/music.h` into your project's `src/`.
 2. Compile the score: `python scripts/compose.py compile main.txt --out <project>/src/music_data.c` (writes
    `music_data.h` next to it: `extern const Song song_main;`). Several scores in one call share the file.
-3. Power the APU once at boot, before any sound (the driver never touches these three registers):
+3. Power the APU once at boot, before any sound (the driver never touches NR52 / NR50; NR51 it owns from here):
    ```c
-   NR52_REG = 0x80;  /* APU on, first */
-   NR50_REG = 0x77;  /* master volume L/R */
-   NR51_REG = 0xFF;  /* every channel to both speakers */
+   NR52_REG = 0x80;           /* APU on, first */
+   NR50_REG = 0x77;           /* master volume L/R */
+   music_set_pan_base(0xFF);  /* every channel to both speakers; the driver ANDs the score's pans into this and writes NR51 only on a change */
    ```
 4. Start the song and tick the driver every frame:
    ```c
@@ -93,6 +93,7 @@ A format-1 Standard MIDI File, five tracks, replayed frame by frame the way the 
 | `v9`, instrument volume | velocity = 8 x volume + 7 (15 -> 127, 6 -> 55) |
 | `!3` cut, wave `decay=N` | the note ends after 3 frames / after 3 x N frames |
 | `echo:5,3` | pulse-1 notes copied onto track 2, 5 frames late, velocity 3 steps lower, until `echo:off` or a pulse-2 note |
+| `C5<` `E5>` `G5^`, `echo:5,3,R`, `pan=L` / `pan=LR:10` | CC10 (pan) on the lane's track at the frame the side changes: 0 left, 64 centre, 127 right; an auto-pan emits CC10 at every flip; a score without pans carries no CC10 (byte-identical to before). The report's `tracks[].pan_events` counts them |
 | drums | K k 36, S s P N 38, H h 42, O 46, T 45, C c 49, B 36, Q 40, M 56, t 47, X 51, D 37, Z 54; a stack strikes the second drum 3 frames later; velocity from the preset's volume; a custom letter not in the table is 38 |
 | `%` tremolo | not exported |
 
@@ -110,18 +111,34 @@ Builds the player ROM (so the sound is the driver on the chip, nothing approxima
 sound emulation using `audio_probe.py`'s capture code, cuts the emulator's boot chime and the silence after it (the
 clip starts on the song's first sounding sample; the report's `trimmed_s` says how much went, about 1.2 s), and
 writes 16-bit stereo PCM at 32768 Hz (the emulated APU's native rate; `--rate` resamples in the
-emulator). Length: the song once (`loop:` body repeated for `--loops 2`) plus half a second, or `--seconds`. With
+emulator). The two channels carry the score's pans exactly as NR51 would on headphones: a `--pan call` song puts the
+answers on one side and the rest in both, an unpanned song has identical left and right channels. Length: the song once (`loop:` body repeated for `--loops 2`) plus half a second, or `--seconds`. With
 `--mp3`, `<out>.mp3` is encoded with `lame` at 192 kb/s (`ffmpeg` + libmp3lame when lame is missing). The fusion
 example renders 77.3 s in about 4 s wall clock: 10.1 MB WAV, 1.86 MB MP3.
 
 Several scores on the command line build a multi-song ROM but only song 1 is rendered; pass one score per WAV.
+
+## 4b. Parts for several consoles (`compose.py split`)
+
+```
+python scripts/compose.py split main.txt --part a=lead,arp --part b=bass,drum:KSks --out-dir parts [--pan a=L30,b=R30]
+```
+writes one score per part that keeps only the named lanes (a drum-letter filter keeps those letters of the kit), with
+the header, instruments, chords, waves and drums copied, so the parts share tempo, bar count and loop exactly: one
+ROM per part, run in lockstep on two consoles or two emulator cores. `--pan` adds a `# pan: L30` line to a part's
+header: where that part's whole mix should sit in a software mixer that plays the parts together (left / right and
+a percentage, `C` for centre). It is a comment the score grammar ignores, so the compiled tables and the ROM do not
+change; a page that mixes the cores reads it as the default position of that core's pan slider (an equal-power pan
+of the core's stereo pair, on top of each ROM's own NR51 pans).
 
 ## 5. Events JSON and the interactive piano roll (for a page)
 
 ```
 python scripts/compose.py events main.txt --out main_events.json --offset 0
 ```
-writes every note with its time in seconds, so a page can draw the song against its audio: inline `pianoroll.js`,
+writes every note with its time in seconds (panned notes carry `pan` -1 / 1 or `"LR"`, and the file gains a
+top-level `pan_changes` list when the song pans; the roll draws a side wedge on those notes and an L / R strip),
+so a page can draw the song against its audio: inline `pianoroll.js`,
 the events JSON and the clip (`main.mp3` from `song_wav.py`), add a `<figure data-pianoroll ...>` and call
 `GbcPianoRoll.mountAll()` (`ARCHITECTURE.md` §5 has the markup, `PIANOROLL.md` the full API). `--offset` is the
 second of the clip at which the song's frame 0 sounds: 0 for `song_wav.py` output (the clip starts on the song's

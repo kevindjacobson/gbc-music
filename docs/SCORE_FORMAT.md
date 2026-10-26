@@ -31,9 +31,10 @@ drum: KH . H h SH h KH . KH h H sh SH h KH h
 |---|---|---|
 | `name: song_main` | C identifier of the `Song`; `music_init(&song_main)` | default `song_<file stem>` |
 | `title: Fusion theme` | free text; shown by the player ROM and in reports | optional |
-| `bpm: 100` | tempo; frames per row = round(3600 / bpm / 4) (100 -> 9, 120 -> 8, 146 -> 6) | 40..240 on the generator; any value that gives 1..255 frames |
+| `bpm: 100` | tempo in beats per minute; frames per row = round(3600 / bpm / rows-per-beat): 4 rows per beat on the 16-row grid (100 -> 9, 120 -> 8, 146 -> 6), 3 on the 12-row grid (140 -> 9) | 40..240 on the generator; any value that gives 1..255 frames |
 | `tempo: 9` | frames per row, directly (the row is a sixteenth note) | 1..255 |
-| `rows: 16` | rows per bar | 1..64, default 16 (a 4/4 bar of sixteenths) |
+| `rows: 16` | rows per bar | 1..64, default 16 (a 4/4 bar of sixteenths); `rows: 12` with `beats: 4` is the triplet grid of swing and shuffle (three rows per beat, the late 8th on the third row) |
+| `beats: 4` | beats per bar; `bpm:` is beats per minute on any grid (frames per row = round(3600 / bpm / (rows / beats))) | must divide `rows`; default rows / 4 (16 -> 4), the generator writes it only when rows != 4 x beats |
 | `arp: 3` | frames per arpeggio step for `:chord` cells | 1..15, default 3 (3-4 reads as a chord) |
 | `loop: 0` | bar the song restarts from, 0-based (the generator points it past the intro) | 0..bars-1 |
 
@@ -45,7 +46,7 @@ At most 15 per song. A cell selects one with `@name`; the instrument stays on th
 
 ### Pulse (pulse 1 and pulse 2 lanes)
 
-`inst <name> pulse duty=<d> env=<hex> [vib=<depth>:<delay>] [rate=<1..7>] [detune=<-8..7>] [penv=<semitones>,<frames>]`
+`inst <name> pulse duty=<d> env=<hex> [vib=<depth>:<delay>] [rate=<1..7>] [detune=<-8..7>] [penv=<semitones>,<frames>] [pan=C|L|R|LR[:<frames>]]`
 
 | key | meaning |
 |---|---|
@@ -55,6 +56,7 @@ At most 15 per song. A cell selects one with `@name`; the instrument stays on th
 | `rate=2` | frames per duty-sequence step (needs a duty list) |
 | `detune=1` | fixed period offset added to every pitch; use on a doubling voice only, at most 1 (`DESIGN_NOTES.md`) |
 | `penv=12,5` | pitch envelope on every note: start N semitones (1..15) above and fall onto the note in M frames (1..15). `12,5` kick, `5,3` tom, `12,1` pluck attack |
+| `pan=R` | every note of the instrument on one side (`L` / `R`; `C` = both, the default): the NR51 bits of the channel, hard left / right, written once per change. `pan=LR:10` is an **auto-pan**: while a note is held the channel alternates left / right every 10 frames (1..63; default 8; `rate=` is taken as the period when the instrument has no duty sequence). A texture for pads and the chord cycle, never a lead. Pulse instruments only: the wave bass is never panned |
 
 ### Wave (bass lane)
 
@@ -114,16 +116,24 @@ optional `@inst` and **at most one effect**:
 | `C3%4,8` | tremolo | volume dips by 4 steps every 8 frames. Click-free on the wave lane (NR32); a re-strike on pulses, so pads only and rate >= 6 (the compiler warns) |
 | `G4=6` | portamento | glide from the previous note's pitch onto G4 in 6 frames (1..255), then hold |
 | `C3@bell` | instrument | select an instrument; its own motion (`decay=`, `penv=`, sequences) applies to every note |
+| `C5<` `E5>` `G5^` | pan marker | this note and the following ones on the left (`<`) / right (`>`) / both (`^`, the default) output: NR51, hard left or right, one register write per change, no re-strike. Lead and arp lanes only; a marker rides on a plain note or next to `@inst` but not next to another effect (one cell holds a note + one effect, or a note + a pan): put it on the row before as an effect-only cell, the switch then lands one 16th early |
 
-Effect-only cells (no note; they act on the held note or the lane): `~`, `v6`, `echo:5,3` / `echo:off` (pulse 2
-lane only: pulse 2 replays pulse 1 five frames late, 3 volume steps quieter, until `echo:off` or a real pulse-2 note),
-`arpspeed:4` (new arpeggio rate for the whole song).
+Effect-only cells (no note; they act on the held note or the lane): `~`, `v6`, `<` / `>` / `^` (a pan change while
+the note holds), `echo:5,3` / `echo:off` (pulse 2 lane only: pulse 2 replays pulse 1 five frames late, 3 volume
+steps quieter, until `echo:off` or a real pulse-2 note), `echo:5,3,R` (the same with the echo voice on the right
+(`L` left) for the echo's duration; `echo:off` or the next real pulse-2 note puts it back to both), `arpspeed:4` (new
+arpeggio rate for the whole song).
+
+**Panning rules** (NR51 is the only pan control: hard left / right / both per channel, mono on the handheld speaker,
+stereo on headphones, in the WAV and in a duet; the measured cartridges keep it static, so a pan is a special
+effect): everything is centre by default; pans belong to echoes, answers and pads; never the wave bass (`bass:`) or
+the kit (`drum:`), the compiler refuses them there. `compose.py generate --pan echo|call|wide` writes them for you.
 
 ## Cells on the drum lane
 
 One or two drum letters: `K`, `SH`. Two letters are a **stack**: the first drum, then the second 3 frames later
 (`KH` = kick, then the hat). `.` nothing, `-` key off. (`v` cells are accepted on the drum lane but the presets carry
-their own volume.)
+their own volume.) No pan markers: the kit stays centre.
 
 ## Tiny complete example
 
@@ -147,3 +157,5 @@ drum: KH . H . SH . H . KH . H . SH h sh H
 `python scripts/compose.py compile demo.txt --out music_data.c` reports 2 bars, 8 bar lanes (8 unique patterns),
 3 instruments, 2 chords, 1 wave, 5 drums, 43 notes (drum hits count), effects arp 2 / vib 1 / cut 7 / bend 1, and
 508 ROM bytes.
+Every compile report also carries `syncopation` (the Longuet-Higgins & Lee index per bar for the lead, chords
+(pulse 2), bass and kick/snare lanes over the loop, plus each lane's off-beat onset share; `SKILL.md` §10).

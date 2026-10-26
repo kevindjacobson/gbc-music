@@ -26,7 +26,7 @@ options:
 
 Two modes, both deterministic and pure stdlib:
 
-  python scripts/compose.py generate --style fusion --key F# --bpm 100 --bars 32 --seed 7 [--bend sparse|none|normal] [--form auto|loop|verse-chorus|aaba|blues12] [--progression NAME|"I V vi IV"] --out output/music/main.txt
+  python scripts/compose.py generate --style fusion --key F# --bpm 100 --bars 32 --seed 7 [--bend sparse|none|normal] [--form auto|loop|verse-chorus|aaba|blues12] [--progression NAME|"I V vi IV"] [--pan none|echo|call|wide] [--groove straight|swing|shuffle|ska|onedrop|funk|dance|tropical|latin|halftime] [--syncopation 0..3] --out output/music/main.txt
       Write a score (the text format below) in a style from the style library (--bend: how often the bass and lead
       bend into a note; every bend resolves onto the written tone; default sparse):
         fusion   jazz-fusion chiptune: maj7/add9/m9 voicings cycled at 32nd rate on pulse 2 (the "fusion chord"),
@@ -46,6 +46,19 @@ Two modes, both deterministic and pure stdlib:
                  chord (I-IV-V or I-bVII-IV), the lead answers in bar 2 (call and response), the chorus switches
                  pulse 2 to power-chord cycles and the lead to a fat 75% duty hook. --form blues12: a shuffle,
                  boogie bass, aab head, head an octave up, a solo chorus.
+        ska      a verse-chorus song on the ska groove: a horn-line hook on pulse 1, the skank (chord chops on
+                 every off-8th) on pulse 2, a walking bass, kick 1 and 3 with cross-stick snares (full snare and
+                 open hats in the chorus), 150-185 bpm, major keys (I IV V / I vi IV V).
+      --groove straight|swing|shuffle|ska|onedrop|funk|dance|tropical|latin|halftime (default straight = as
+               before): the kit, the bass rhythm, the pulse-2 stab rhythm and the hook rhythm bank of a genre, with
+               a tempo band (a warning when --bpm is outside it). swing / shuffle write a 12-row bar (`rows: 12`,
+               `beats: 4`: a triplet grid, the late 8th is row 2 of each beat). `pop --groove tropical` is the 2010s
+               pop hit template (dembow kick and snare, tresillo bass, a sparse verse, a pre-chorus build, the
+               chorus carried by an off-beat plucked hook); `latin` is the tresillo strum over a straight kit,
+               `halftime` the riff-rock snare on 3. `compose.py styles` lists the grooves with their bands.
+      --syncopation 0|1|2|3 (default: the groove's own level; straight = 0): how many anticipations, off-beat
+               pushes and strong-beat rests the hook, the bass and the kick/snare get; 2 is the medium level the
+               groove research found most danceable, 3 is funk. The report prints the syncopation index per lane.
       --form:  loop = the style's own loop (fusion/ambient/chip default); stage = the stage-corpus loop, (intro 4)
                A 8 B 8 C 8 with a progression per section (rock default; `--progression "stage_a | stage_b | stage_c"`);
                verse-chorus = 32 / 48 / 64 bars by --bars (pop default); aaba = A A' B A (+ intro/outro at 40);
@@ -58,6 +71,12 @@ Two modes, both deterministic and pure stdlib:
                (maj7/add9/m9 colour on the pulse-2 cycle, mordents and trills on the lead, slap bass with octave
                bounces, the fusion kit, the echo voice in the bridge / B section). `compose.py styles` lists the
                forms, textures and the progression library with moods.
+      --pan none|echo|call|wide: stereo pans (NR51: hard left / right / both per channel; mono on the handheld
+               speaker, audible on headphones, in the WAV and in a duet). none = the default, byte-identical scores;
+               echo = the echo voice right and the lead left for the echo's duration (ping-pong); call = call and
+               response (the rock verse's answers alternate sides per phrase, the blues call left and answer right,
+               a pop / stage phrase's restatement right and conclusion left); wide = echo + call + an LR auto-pan on
+               the verse pad. Pans belong to echoes, answers and pads: never the wave bass, never the kit.
   python scripts/compose.py compile output/music/main.txt [more.txt ...] --out output/game/src/music_data.c
       Compile score file(s) into C tables for the driver (+ music_data.h beside the .c, declaring
       `extern const Song <name>;` per song). The game then calls music_init(&<name>).
@@ -67,27 +86,33 @@ Two modes, both deterministic and pure stdlib:
       lanes of the input and silences the rest; the header, instruments, chords, waves and drums are copied, so
       the parts share tempo, bar count and loop exactly (a multi-ROM piece: one part per Game Boy, run in lockstep).
       A lane may carry a drum-letter filter: `--part b=bass,drum:KSks` keeps only those letters on the noise lane
-      (a two-letter stack keeps the letter that is listed).
+      (a two-letter stack keeps the letter that is listed). `--pan a=L30,b=R30` writes a `# pan: L30` hint into each
+      part's header: where that part's whole mix sits in a software mixer that plays the parts together (L/R + percent,
+      0..100; C = centre); it is a comment the score grammar ignores, so the ROMs are unchanged.
 
   python scripts/compose.py events output/music/main.txt --out output/music/main_events.json [--offset 0.1]
       Note events of a compiled score as JSON for the piano-roll component (scripts/pianoroll.js):
       one entry per sounding note with ch 0..3, t/d in seconds (t = --offset + frame / 59.7275), f/fd in frames,
       bar/row, midi, vol, inst, and the pitch effects the driver applies (arp intervals + arp_f, trill, mordent,
-      split, bend, porta, slide, vib, trem, penv, cut, echo copies, dec = envelope lifetime). Several scores are
-      chained back to back (bar numbers continue; `songs` lists each start).
+      split, bend, porta, slide, vib, trem, penv, cut, echo copies, dec = envelope lifetime; pan -1 left / 1 right
+      or "LR" + pan_f for an auto-pan, only on panned notes) and, when the song pans, a top-level `pan_changes`
+      list ({ch, f, t, pan}). Several scores are chained back to back (bar numbers continue; `songs` lists each start).
 Both modes print a final JSON line {"ok": true, ...} (a report), exit non-zero with a one-line reason.
 
 Score format (one song per file; '#' after a space or at line start starts a comment; see `scripts/compose.py styles` for chord names):
   name: song_main            C symbol of the song (default: song_<file stem>)
   bpm: 100                   or  tempo: 9  (frames per row; a row is a 16th note; 3600/bpm/4)
-  rows: 16                   rows per bar (default 16)
+  rows: 16                   rows per bar (default 16); rows: 12 with beats: 4 = a triplet grid (swing, shuffle)
+  beats: 4                   beats per bar (default rows / 4); bpm: means beats per minute whatever the grid
   arp: 3                     frames per arpeggio step (default 3; the fusion rate is 3..4)
   loop: 0                    bar the song restarts from, 0-based (default 0)
   inst <name> pulse duty=50|25|12|75 env=<hex NRx2> [vib=<depth>:<delay>] [duty=50,25,12,25 rate=<frames>]
-                                  [detune=<-8..7>] [penv=<semitones>,<frames>]
+                                  [detune=<-8..7>] [penv=<semitones>,<frames>] [pan=C|L|R|LR[:<frames>]]
       duty with 2-4 values = a duty sequence rotated every `rate` frames (a PWM shimmer, the RPG cry timbre);
       detune = fixed period offset (two pulses a unit apart = chorus); penv = start N semitones up and fall onto the
-      note in M frames (12,5 kick / 5,3 tom / 12,1 pluck); env direction up (e.g. 0B = vol 0, up, pace 3) = soft attack.
+      note in M frames (12,5 kick / 5,3 tom / 12,1 pluck); env direction up (e.g. 0B = vol 0, up, pace 3) = soft attack;
+      pan=L|R puts every note of the instrument on that side (C = both, the default), pan=LR[:N] alternates left / right
+      every N frames (default 8) while a note is held: an auto-pan texture for pads and the chord cycle, never a lead.
   inst <name> wave vol=<0..15> shape=<wave>|<wave>,<wave>,... [rate=<frames>] [loop] [decay=<frames>|attack=<frames>]
                                   [vib=..] [detune=..] [penv=..]
       a shape list = wavetable sequence stepped every `rate` frames from the note start (one-shot, or `loop`);
@@ -107,7 +132,11 @@ A note takes one optional `@inst` and at most one effect:
   `>D5` 32nd pair (second note mid-row)
   `v9` volume 0..15   `!4` cut after 4 frames   `%2,8` tremolo (dip 2 volume steps every 8 frames; click-free on the
   wave lane, a re-strike on pulses: pads only)   `=6` portamento (glide from the previous note onto this one in 6 frames).
-  Effect-only cells: `echo:5,3` (pulse 2 replays pulse 1 five frames late, 3 quieter; `echo:off`), `arpspeed:4`, `~`, `v6`.
+  Pan markers (lead and arp lanes only; NR51 hard left / right): `C5<` left, `E5>` right, `G5^` centre (both), holding
+  until the next marker; a marker rides on a plain note (or on `@inst`) but not next to another effect: put it on the
+  row before as an effect-only cell (`<`, `>`, `^`). Never on the bass or drum lanes.
+  Effect-only cells: `echo:5,3` (pulse 2 replays pulse 1 five frames late, 3 quieter; `echo:5,3,R` puts the echo voice on
+  the right for the echo's duration, `echo:off` restores centre), `arpspeed:4`, `~`, `v6`, `<` `>` `^`.
 Drum cells: letters from  K kick  S snare  H hat  O open hat  T tom  C crash  k s h (ghost/quiet versions);
   RPG kit: B buzz-kick (7-bit then hiss)  Q tight snare  P bright snare  N soft snare  M metal ting (7-bit)
   t 7-bit tom (two-stage)  X cymbal  c crash (two-stage)  D snap  Z tonal 7-bit buzz;
@@ -121,14 +150,20 @@ usage: compose.py generate [-h] [--style STYLE] [--key KEY] [--bpm BPM]
                            [--bars BARS] [--seed SEED]
                            [--bend {none,normal,sparse}] [--form FORM]
                            [--progression NAME|NUMERALS] [--texture TEXTURE]
-                           [--lift {fifth,octave,sixth}] [--organic {0,1,2,3}]
-                           [--name NAME] --out OUT [--report REPORT]
+                           [--lift {fifth,octave,sixth}] [--phrases {0,1,2}]
+                           [--hook {0,1,2,3}] [--groove GROOVE]
+                           [--syncopation {0,1,2,3}] [--organic {0,1,2,3}]
+                           [--pan {call,echo,none,wide}] [--name NAME] --out
+                           OUT [--report REPORT]
 
 options:
   -h, --help            show this help message and exit
-  --style STYLE         fusion | ambient | chip | pop | rock
+  --style STYLE         fusion | ambient | chip | pop | rock | ska
   --key KEY             key, e.g. F#, Bb, C (default F#)
-  --bpm BPM             tempo (default 100; rows are 16ths: 3600/bpm/4 frames)
+  --bpm BPM             tempo in beats per minute (default: the groove's
+                        centre, 100 for straight; rows are 16ths: 3600/bpm/4
+                        frames, triplet 8ths on the 12-row grooves:
+                        3600/bpm/3)
   --bars BARS           length in bars (rounded to the style's section size or
                         the form's plan: 32/48/64, 32/40, 28/40/52)
   --seed SEED           random seed; the same arguments always give the same
@@ -156,11 +191,66 @@ options:
                         how far the chorus / C section / final A / second head
                         lead sits above the verse: fifth (default; the
                         reference corpora lift 1-8 semitones) | sixth | octave
+  --phrases {0,1,2}     phrase-level composition for the pop/rock/chip forms
+                        (default 0 = the one-motif grammar, byte-identical): 1
+                        = each section composes from a bank of three ideas
+                        (statement, answer, departure) whose rhythms carry
+                        rests as cells, B sections quote the previous
+                        section's answer a step away, pulse 2 answers a phrase
+                        that ends early, the answer phrases take a second lead
+                        colour; 2 = + repeated sections re-order their bank,
+                        restatements thin by a note, more rests
+  --hook {0,1,2,3}      hook and melody engine for the pop/rock/chip forms
+                        (default 0 = today's melodies, byte-identical): 1 =
+                        the chorus / stage-A hook is designed first (a corpus
+                        contour class, 7-10 semitones, one leap at a fixed
+                        place, a rhythm with one anticipation landing on beat
+                        3 with a breath), repeats note for note with the third
+                        statement changed, and the verse (its rhythm on fewer
+                        notes, lower), pre-chorus (its first bar sequenced up)
+                        and outro (its tail twice) derive from it; 2 = +
+                        melodic-math symmetry: answer phrases mirror their
+                        statement with the same rhythm and note count, the
+                        chorus holds the song's top note (heard once per
+                        chorus), the intro's chord voice plays the hook's
+                        rhythm first; 3 = + the earworm surprise: one unusual
+                        interval (a sixth or a tritone, resolved by step) in
+                        the hook, the final note delayed an 8th the last time,
+                        the bass quotes the hook under the bridge / B section.
+                        fusion, ambient and blues12 ignore it (and say so);
+                        the report's `hook` block carries the design and the
+                        measured metrics against the corpus bands
+  --groove GROOVE       straight (default: as before) | swing | shuffle | ska
+                        | onedrop | funk | dance | tropical | latin |
+                        halftime: the kit, bass rhythm, pulse-2 stab rhythm
+                        and hook rhythm bank of a genre, with a tempo band
+                        (`compose.py styles`); swing / shuffle write 12-row
+                        bars (a triplet grid)
+  --syncopation {0,1,2,3}
+                        anticipations, off-beat pushes and strong-beat rests
+                        on the hook, bass and kick/snare (default: the
+                        groove's own level, straight = 0 = as before): 0
+                        kick/snare on the beats and the hook on the 8th grid;
+                        1 the groove's pattern + the hook anticipates its
+                        second-bar downbeat and the bass pushes chord changes;
+                        2 medium (the groove research's sweet spot): + the
+                        and-of-3 kick, the and-of-2 lean, a pickup before the
+                        hook; 3 funk: + off-16th ghosts and pops
   --organic {0,1,2,3}   organic layer (default 0 = untouched): 1 = repeats
                         vary on phrase ends, phrase-end breaths, section
                         fills, off-beat accents; 2 = + half of all repeats
                         vary, dropped hats, pulse 2 sits out a bar, bass
                         anticipations; 3 = + density ebbs inside sections
+  --pan {call,echo,none,wide}
+                        stereo pans (NR51, hard left / right; mono on the
+                        handheld speaker): none (default; byte-identical to
+                        before) | echo (the echo voice right, the lead left
+                        for the echo's duration) | call (call and response:
+                        the rock verse's answers alternate sides, the blues
+                        call left and answer right, a pop / stage phrase's
+                        restatement right and conclusion left) | wide (echo +
+                        call + an LR auto-pan on the verse pad). Never the
+                        bass or the kit
   --name NAME           C symbol for the song (default song_main)
   --out OUT             score file to write, e.g. output/music/main.txt
   --report REPORT       also write the JSON report here
@@ -186,18 +276,23 @@ options:
 
 ```text
 usage: compose.py split [-h] --part NAME=LANES --out-dir OUT_DIR
-                        [--report REPORT]
+                        [--pan PART=L30,PART=R30] [--report REPORT]
                         score
 
 positional arguments:
-  score              the score to split
+  score                 the score to split
 
 options:
-  -h, --help         show this help message and exit
-  --part NAME=LANES  e.g. a=lead,arp or b=bass,drum:KSks (repeatable; lanes
-                     lead/arp/bass/drum, optional drum-letter filter)
-  --out-dir OUT_DIR  directory for <stem>_<part>.txt
-  --report REPORT    also write the JSON report here
+  -h, --help            show this help message and exit
+  --part NAME=LANES     e.g. a=lead,arp or b=bass,drum:KSks (repeatable; lanes
+                        lead/arp/bass/drum, optional drum-letter filter)
+  --out-dir OUT_DIR     directory for <stem>_<part>.txt
+  --pan PART=L30,PART=R30
+                        mixer hint per part for a page that plays the parts
+                        together: L<percent> / R<percent> / C, written as `#
+                        pan: L30` in the part's header (a comment: the ROM is
+                        unchanged)
+  --report REPORT       also write the JSON report here
 ```
 
 ## compose.py events
@@ -221,9 +316,22 @@ options:
 ## compose.py styles (the library listing)
 
 ```text
-styles: fusion (default form loop), ambient (default form loop), chip (default form loop), pop (default form verse-chorus), rock (default form stage)
+styles: fusion (default form loop), ambient (default form loop), chip (default form loop), pop (default form verse-chorus), rock (default form stage), ska (default form verse-chorus)
 forms: loop: the style's own loop, no sections (fusion / ambient / chip as before); stage: stage-corpus loop: (intro 4) A 8 B 8 C 8, each section a 4-bar phrase and its varied repeat, a new progression per section, loop at A (16, 24 or 28 bars); verse-chorus: intro | verse | pre-chorus | chorus | verse | pre-chorus | chorus | bridge | chorus | outro (32, 48 or 64 bars); aaba: A A' B A: the 32-bar song form, B is the middle eight in a new key area (+ intro/outro at 40 bars); blues12: intro + N twelve-bar choruses: head, head an octave up, solo, head (28, 40 or 52 bars)
 textures: plain: triads / power chords, straight kit, vibrato on held notes (pop, rock, chip as written); fusion: the fusion idioms on any form: maj7/add9/m9 colour on the pulse-2 chord cycle, mordents and trills on the lead, slap bass with octave bounces, the fusion kit, the echo voice in the bridge / B section
+pan modes (--pan): none: no pans (the default; every channel centre); echo: the echo voice right for the echo's duration, the lead left meanwhile (ping-pong echo); call: call and response: answers / restatements on a side (rock verse alternating, blues call L answer R, pop restatement R conclusion L); wide: echo + call + an LR auto-pan on the verse pad
+grooves (--groove; tempo band in bpm, default syncopation level, rows per bar):
+  straight  90-160 bpm (default 100), syncopation 0, 16 rows: the kit, bass and hook rhythms as before: kick 1 and 3, snare 2 and 4, 8th hats (every form and texture)
+  swing     100-200 bpm (default 140), syncopation 1, 12 rows: jazz swing on a triplet grid (rows: 12): ride on the beat and the late 8th, snare 2 and 4, walking quarter bass, chord comping on 2 and 4 or the Charleston figure
+  shuffle   80-140 bpm (default 112), syncopation 1, 12 rows: blues / boogie shuffle on the triplet grid (rows: 12): kick 1 and 3, snare 2 and 4, hats on the beat and the late 8th, boogie bass, 7th stabs on the late 8ths
+  ska       150-185 bpm (default 168), syncopation 2, 16 rows: ska: fast 4/4 with the skank (chord chops on every off-8th), walking bass, kick 1 and 3, cross-stick snare 2 and 4 (full snare and open hats in the chorus), one-drop bridge, stop-time fill
+  onedrop   65-90 bpm (default 76), syncopation 2, 16 rows: reggae one-drop: beat 1 empty, kick and rim-click together on beat 3, the skank on 2 and 4, a sparse bass that leans on the and-of-2, slow
+  funk      90-115 bpm (default 104), syncopation 2, 16 rows: funk: hit the one, sixteenth-note kicks and ghost snares, hats on every 16th, a 16th-syncopated bass with octave pops, chord chanks on the off-beats
+  dance     118-130 bpm (default 124), syncopation 1, 16 rows: four-on-the-floor dance pop: kick on every beat, clap on 2 and 4, open hat on every off-8th, octave bass on the 8ths, chord stabs on the off-beats
+  tropical  95-110 bpm (default 100), syncopation 2, 16 rows: a 2010s pop hit single (tropical-house / dancehall-pop): ~100 bpm, the dembow kick and snare (kick 1 and 3, snare on the and-of-2 and 4), a tresillo bass, a sparse verse that hints the hook's rhythm, a pre-chorus build, the chorus carried by an off-beat plucked hook
+  latin     100-140 bpm (default 120), syncopation 2, 16 rows: latin / flamenco tresillo (a desert-stage theme from a 1998 console adventure): a straight kit, bass on the beats, chord strums on the 3-3-2 cell (rows 0, 6, 12), hook rhythms built on the tresillo
+  halftime  100-125 bpm (default 112), syncopation 1, 16 rows: half-time riff rock (a late-1960s rock single): the snare on 3 only, kick on 1 with a push, 8th hats, a one-bar blues riff on the bass doubled as chord hits on pulse 2, the riff transposed with the chord
+syncopation levels (--syncopation): 0 = straight: kick, snare, bass and hook on the beats (a groove's patterns are straightened to the beat grid), no anticipation; 1 = the 8th grid: the kick on the and-of-3, the bass pushes the next chord's root an 8th early, the hook anticipates its second-bar downbeat by a 16th; 2 = medium (the groove research's sweet spot; the native level of ska, one-drop, funk, latin and the pop-hit groove): the groove's 16th pushes, a ghost snare before beat 3, the bass leans on the and-of-2, the hook pushes beat 3 to the and-of-2 and takes a pickup before bar 1; 3 = funk: + ghost snares on the off-16ths, bass pops on the off-16ths, the hook's beats 2 and 4 move to off-16ths. A groove starts from its own level: each step above it adds the next push, each step below straightens its patterns
 progressions (Roman numerals, resolved against --key; or pass your own, e.g. --progression "I bVII IV I"):
   axis        I V vi IV                        bright pop anthem, the four-chord loop of a thousand hits
   sensitive   vi IV I V                        wistful, bittersweet: the same four chords starting on the minor
@@ -242,6 +350,7 @@ progressions (Roman numerals, resolved against --key; or pass your own, e.g. --p
   puff        I iii IV I                       gentle folk-pop opening
   blues12     I I I I IV IV I I V IV I V       the twelve-bar blues: three 4-bar phrases, aab
   blues12q    I IV I I IV IV I I V IV I V      twelve-bar blues with the quick change to IV in bar 2
+  skank       I IV V V                         ska / rocksteady drive: three chords, the V held into the turnaround
   stage_a     i i bVI bVII                     stage corpus A section: driving aeolian minor, VII pulls home
   stage_b     i i iv bVII                      stage corpus B section: the same drive through iv
   stage_c     i IV bVII i                      stage corpus C section: the dorian IV lift under a climbing lead
@@ -327,12 +436,16 @@ Game Boy driver (music.c) would play it, frame by frame at 59.7275 frames per se
   - a resolving bend (`/-2,6`), a portamento (`G4=6`), an instrument pitch envelope (`penv=`) and a raw slide (`/-6`)
     become pitch-bend events (bend range set to 12 semitones with RPN 0), following the driver's period-linear glide;
   - vibrato becomes CC1 (modulation) by default, pitch bend with --vibrato bend, or nothing;
+  - a pan (`C5<` / `E5>` / `G5^` markers, `echo:5,3,R`, an instrument's `pan=L|R|LR:N`) becomes CC10 (0 left, 64 centre,
+    127 right) on the lane's track at the frame the side changes; an auto-pan emits CC10 per flip; a score without
+    pans gets no CC10 at all (the file is byte-identical to before);
   - `v9` sets velocity (vol 0..15 -> 7..127), `!3` cuts the note, a wave `decay=` ends the note on its own,
     `echo:5,3` copies pulse 1 onto the pulse-2 track N frames late and quieter until `echo:off` or a real pulse-2 note;
   - the kit letters map to GM percussion (K 36 kick, S 38 snare, H 42 closed hat, O 46 open hat, T 45 tom, C 49 crash,
     B 36, Q 40, P 38, N 38, M 56, t 47, X 51, c 49, D 37, Z 54; ghost letters k s h keep their quieter velocity);
-  - tempo = 4 rows per quarter note at `frames_per_row` frames per row (bpm 100 = 9 frames per row); PPQ = 32 x
-    frames_per_row so every frame is exactly 8 ticks; the time signature follows `rows:` (16 rows = 4/4).
+  - tempo = `rows / beats` rows per quarter note at `frames_per_row` frames per row (bpm 100 = 9 frames per row on
+    the 16-row grid); PPQ = 8 x rows-per-beat x frames_per_row so every frame is exactly 8 ticks; the time signature
+    follows `beats:` (16 rows = 4/4; a 12-row `beats: 4` swing bar is 4/4 with each row a triplet eighth).
 Tremolo (`%`) is not exported (a hardware level step; MIDI has no equivalent on these channels). --loops N appends the
 loop body (from `loop:`) N-1 more times.
 
@@ -405,12 +518,16 @@ options:
 
 Runs the ROM several times with identical input (PyBoy is deterministic): once with the normal
 stereo mix (for the WAV) and once per channel with NR51 (0xFF25) forced to that channel alone
-after every frame, so each channel can be analysed on its own. Two measurement windows:
+after every frame, so each channel can be analysed on its own. A frame in which the ROM wrote NR51 itself (a pan
+change) is counted as a pan event: the probe reads the value the ROM wanted, keeps the soloed channel's own left /
+right bits from it for the following frames (so a panned channel is heard on its side in its solo pass) and reports
+`pan_events`, `pan_leak_frames` and `solo_reliable` (pan events under 5% of the frames). Two measurement windows:
   title  after --pre (default `wait:150`), --title-seconds of audio (default 3)
   play   after --script (default `press:start;wait:60`), --seconds of audio (default 10)
 Per window and channel: active frames (RMS above a floor), distinct pitches (autocorrelation pitch
 per frame, rounded to MIDI), pitch changes, note onsets, arpeggio runs (the pitch stepping every 2..6
-frames through >= 3 notes: the chord-cycle idiom), drum hits on the noise channel. `music_detected`
+frames through >= 3 notes: the chord-cycle idiom), drum hits on the noise channel, and a `stereo` block (left /
+right RMS of the channel's solo pass, their ratio, and the side it sat on: L, R, C or moving). `music_detected`
 means >= 2 channels active over >= 15% of the window and >= 8 pitch changes on the tonal channels
 (not one static tone). `music_during_gameplay` is the play window's music_detected.
 

@@ -12,12 +12,16 @@ Game Boy driver (music.c) would play it, frame by frame at 59.7275 frames per se
   - a resolving bend (`/-2,6`), a portamento (`G4=6`), an instrument pitch envelope (`penv=`) and a raw slide (`/-6`)
     become pitch-bend events (bend range set to 12 semitones with RPN 0), following the driver's period-linear glide;
   - vibrato becomes CC1 (modulation) by default, pitch bend with --vibrato bend, or nothing;
+  - a pan (`C5<` / `E5>` / `G5^` markers, `echo:5,3,R`, an instrument's `pan=L|R|LR:N`) becomes CC10 (0 left, 64 centre,
+    127 right) on the lane's track at the frame the side changes; an auto-pan emits CC10 per flip; a score without
+    pans gets no CC10 at all (the file is byte-identical to before);
   - `v9` sets velocity (vol 0..15 -> 7..127), `!3` cuts the note, a wave `decay=` ends the note on its own,
     `echo:5,3` copies pulse 1 onto the pulse-2 track N frames late and quieter until `echo:off` or a real pulse-2 note;
   - the kit letters map to GM percussion (K 36 kick, S 38 snare, H 42 closed hat, O 46 open hat, T 45 tom, C 49 crash,
     B 36, Q 40, P 38, N 38, M 56, t 47, X 51, c 49, D 37, Z 54; ghost letters k s h keep their quieter velocity);
-  - tempo = 4 rows per quarter note at `frames_per_row` frames per row (bpm 100 = 9 frames per row); PPQ = 32 x
-    frames_per_row so every frame is exactly 8 ticks; the time signature follows `rows:` (16 rows = 4/4).
+  - tempo = `rows / beats` rows per quarter note at `frames_per_row` frames per row (bpm 100 = 9 frames per row on
+    the 16-row grid); PPQ = 8 x rows-per-beat x frames_per_row so every frame is exactly 8 ticks; the time signature
+    follows `beats:` (16 rows = 4/4; a 12-row `beats: 4` swing bar is 4/4 with each row a triplet eighth).
 Tremolo (`%`) is not exported (a hardware level step; MIDI has no equivalent on these channels). --loops N appends the
 loop body (from `loop:`) N-1 more times.
 
@@ -128,6 +132,9 @@ def tri8(phase: int) -> int:
 # ---------------------------------------------------------------- the frame-level replay
 
 
+PAN_CC = {1: 127, 2: 0, 3: 64}           # NR51 side (1 right, 2 left, 3 both) -> CC10
+
+
 class Note:
     __slots__ = ("lane", "start", "dur", "midi", "vel", "program", "bends", "cc1")
 
@@ -163,7 +170,15 @@ class Replay:
         self.lane_state = [{"inst": 0, "vol": 15, "note": None, "prev_period": None} for _ in range(4)]
         self.echo_segments: list[tuple[int, int, int, int]] = []     # (start, end, delay, drop)
         self.open_echo: tuple[int, int, int] | None = None
+        self.echo_side = False
+        self.pan_state = [3, 3]                                       # pulse lanes' sides, as the driver tracks them
+        self.pans: list[list[tuple[int, int]]] = [[], []]             # per pulse lane: (frame, CC10 value) at each change
         self.warnings: list[str] = list(song.warnings)
+
+    def set_pan(self, lane: int, side: int, frame: int) -> None:
+        if lane < 2 and side and self.pan_state[lane] != side:
+            self.pan_state[lane] = side
+            self.pans[lane].append((frame, PAN_CC[side]))
 
     # -- instrument helpers
     def inst(self, lane: int):
@@ -244,6 +259,11 @@ class Replay:
             self.warnings.append(str(exc))
             return
         inst_id, fx = inst_fx >> 4, inst_fx & 0x0F
+        pan = 0
+        if lane < 2 and note & compose.PAN_NOTE and note != compose.MUSIC_OFF:   # pan pseudo-note: a side change on an effect-only cell
+            pan, note = note & 0x03, 0
+        if fx == FX["pan"]:
+            pan = param & 0x03
         if inst_id:
             st["inst"] = inst_id - 1
             st["vol"] = self.inst_vol(lane)
@@ -256,22 +276,43 @@ class Replay:
                 s, d, dr = self.open_echo
                 self.echo_segments.append((s, frame, d, dr))
                 self.open_echo = None
+            if self.echo_side and not param:
+                self.set_pan(1, 3, frame)
+                self.echo_side = False
             if param:
                 self.open_echo = (frame, param >> 4, param & 0x0F)
+                if pan:
+                    self.echo_side = True
+            self.set_pan(lane, pan, frame)
             return
         if not note:
+            self.set_pan(lane, pan, frame)
             return
         self.cells += 1
-        if lane == 1 and self.open_echo:                       # a real pulse-2 note ends echo mode
+        if lane == 1 and self.open_echo:                       # a real pulse-2 note ends echo mode (and its side)
             s, d, dr = self.open_echo
             self.echo_segments.append((s, frame, d, dr))
             self.open_echo = None
+            if self.echo_side:
+                self.set_pan(1, 3, frame)
+                self.echo_side = False
         span = max(1, end - frame)
         if fx == FX["cut"]:
             span = min(span, max(1, param))
         name, typ, kv = self.inst(lane)
         if typ == "wave" and "decay" in kv:
             span = min(span, 3 * max(1, int(kv["decay"])))
+        if lane < 2 and typ == "pulse" and "pan" in kv:        # instrument pan: a side per note, or an auto-pan (CC10 per flip)
+            m = re.fullmatch(r"(?i)(C|L|R|LR)(?::(\d+))?", kv["pan"].strip())
+            if m and m.group(1).upper() == "LR":
+                period = int(m.group(2)) if m.group(2) else (int(kv["rate"]) if "rate" in kv and "," not in kv.get("duty", "") else compose.PAN_AUTO_DEFAULT)
+                side = 2
+                for k in range(0, span, max(1, period)):
+                    self.set_pan(lane, side, frame + k)
+                    side = 1 if side == 2 else 2
+            elif m:
+                self.set_pan(lane, compose.PAN[m.group(1).upper()], frame)
+        self.set_pan(lane, pan, frame)                         # the cell's own pan wins over the instrument's
         # per-frame pitch (MIDI note) and bend offset (semitones)
         pitches = [note] * span
         bend = [0.0] * span
@@ -396,11 +437,15 @@ def bend_value(semis: float) -> int:
 
 def build_midi(replay: Replay, title: str) -> tuple[bytes, dict]:
     fpr = replay.fpr
-    ppq = 4 * fpr * TICKS_PER_FRAME                           # a quarter note = 4 rows
-    tempo_us = int(round(4 * fpr / FPS * 1_000_000))
     rows = replay.rows
-    if rows % 4 == 0:
-        num, den_pow = rows // 4, 2                               # x/4
+    beats = getattr(replay.song, "beats", rows // 4 if rows % 4 == 0 else rows)
+    rpb = max(1, rows // max(1, beats))                           # rows per beat: 4 (sixteenths) or 3 (triplet eighths)
+    ppq = rpb * fpr * TICKS_PER_FRAME                             # a quarter note = rpb rows
+    tempo_us = int(round(rpb * fpr / FPS * 1_000_000))
+    if rows % beats == 0 and rpb in (3, 4) or rows % 4 == 0 and rpb == 4:
+        num, den_pow = beats, 2                                   # x/4
+    elif rows % 4 == 0:
+        num, den_pow = rows // 4, 2
     else:
         num, den_pow = rows, 4                                    # x/16
     conductor: list[tuple[int, int, bytes]] = [
@@ -421,6 +466,9 @@ def build_midi(replay: Replay, title: str) -> tuple[bytes, dict]:
                 ev.append((0, 0, bytes([0xB0 | ch, cc, val])))
         n_bends = 0
         last_bend = None
+        if lane < 2:
+            for f, v in replay.pans[lane]:                        # CC10 at each side change (none when the song has no pans)
+                ev.append((f * TICKS_PER_FRAME, 1, bytes([0xB0 | ch, 10, v])))
         for n in notes:
             t0 = n.start * TICKS_PER_FRAME
             t1 = (n.start + n.dur) * TICKS_PER_FRAME
@@ -442,7 +490,7 @@ def build_midi(replay: Replay, title: str) -> tuple[bytes, dict]:
             ev.append((t1, 0, bytes([0x80 | ch, n.midi & 0x7F, 0])))
         tracks.append(track_chunk(ev))
         stats.append({"lane": LANE_NAMES[lane], "channel": ch + 1, "program": (program + 1) if program is not None else "drums",
-                      "notes": len(notes), "bend_events": n_bends})
+                      "notes": len(notes), "bend_events": n_bends, "pan_events": len(replay.pans[lane]) if lane < 2 else 0})
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), ppq)
     info = {"ppq": ppq, "tempo_us_per_quarter": tempo_us, "time_signature": f"{num}/{1 << den_pow}", "tracks": stats}
     return header + b"".join(tracks), info

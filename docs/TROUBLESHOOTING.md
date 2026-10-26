@@ -40,12 +40,31 @@ Read the JSON line every script prints: it names the problem. Then this list.
   another `name:`; recompile the score with `--out <project>/src/music_data.c`.
 - A `song_rom.py` failure keeps the project at the path it prints (or `--project <dir>`): open `build.log` there.
 
+## I hear no panning
+
+- **The handheld speaker is mono**: NR51 pans are heard on headphones, in `song_wav.py`'s stereo WAV / MP3 and in a
+  two-core duet only. Check the probe instead: `pan_events` > 0 and a channel's `stereo.side` L / R / moving.
+- **The game still writes `NR51 = 0xFF` itself** (an old `sfx_init`): replace it with `music_set_pan_base(0xFF)`;
+  a per-frame NR51 write from game code undoes every music pan and makes `solo_reliable` false.
+- **The pan is on the bass or the kit**: the compiler refuses it (`pan markers belong on the lead and arp lanes`);
+  pans belong to echoes, answers and pads.
+- **`--pan echo` did nothing**: the score has no echo section (plain textures have none; `--texture fusion`, the
+  fusion style and its AABA / verse-chorus forms do). `--pan call` needs a form with phrases (stage, verse-chorus,
+  aaba, blues12); the fusion loop has none.
+- **A marker next to an effect** (`C5~<`) is refused: one cell holds a note + one effect or a note + a pan. Put the
+  marker on the row before (`.` -> `<`); the switch then lands one 16th early, during the rest or the previous tail.
+- **The probe's solo passes are approximate** (`solo_reliable: false`): the ROM rewrote NR51 in more than 5% of the
+  frames, usually an auto-pan (`pan=LR:N`) flipping every N frames. The channel numbers are still measured on the
+  channel alone (the probe follows the ROM's own side for the soloed channel); only the write frames can leak.
+
 ## The probe disagrees with my ears
 
 - `samples: false`: this PyBoy build cannot sample sound; only NR52 activity is reported. Use the PyBoy in
   `tools/pyenv` (sound emulation on).
-- `solo_reliable: false`: the game rewrites NR51 every frame, so the per-channel passes are approximate; write NR51
-  once at boot.
+- `solo_reliable: false`: the ROM rewrote NR51 in more than 5% of the frames (`pan_events` counts them, `pan_leak_frames`
+  the frames over the four passes in which another channel could leak in), so the per-channel passes are approximate.
+  Game code must never write NR51 itself (`music_set_pan_base` instead); music pans from the score are rare by design,
+  an auto-pan is the one texture that pushes the count up.
 - `music_detected: false` on `play` but the song is audible: the play window starts 60 frames after START; a game
   that restarts music later, or ducks it to 0, or whose START does not reach gameplay, has silence there. For the
   player ROM use `--pre wait:60` (music starts at boot).

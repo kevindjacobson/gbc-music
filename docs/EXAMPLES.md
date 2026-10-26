@@ -1,4 +1,4 @@
-# Six worked examples
+# Twelve worked examples
 
 Each example is a complete command sequence from an empty directory (`export SKILL=/path/to/skills/gbc-music`
 first; `python` = a Python with numpy, pyboy and Pillow for the WAV and probe steps), the numbers it produced when
@@ -124,3 +124,130 @@ kit only: the ghost `h` and `sh` are dropped), each with the same tempo, bars an
 lockstep play the duet.
 Listen for: the bass's level change on the bounces (the wave channel's click-free NR32 step), the bend landing on
 B1, and that `duo_a.gbc` and `duo_b.gbc` together are the whole `duo.txt`.
+
+## 7. Phrase-level composition (the motif banks) on the house blend
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex7 && cd ex7
+python $SKILL/scripts/compose.py generate --style rock --key E --bpm 146 --bars 28 --seed 3 --texture fusion --phrases 2 --organic 2 --out blend.txt --report gen.json
+python $SKILL/scripts/compose.py generate --style pop --key C --bpm 120 --bars 48 --seed 1 --progression axis --phrases 2 --out pop.txt --report pop.json
+python $SKILL/scripts/song_rom.py blend.txt --out blend.gbc --title "Phrase Demo"
+python $SKILL/scripts/song_midi.py pop.txt --out pop.mid
+```
+Produced: the stage form with the fusion texture, composed from a bank of three ideas per section (the report's
+`banks` lists each section's statement / answer / departure as eight beat cells of `x . -`), rests written into
+the lead, the C section quoting B's answer a step away; the pop song with its verse answered by pulse 2
+(`pulse2_answers` in the report) and verse 2 re-ordering the bank. The header comment names the banks and the
+answer count.
+Listen for: the lead breathing inside phrases, not only at their ends; the answer phrases on the narrower `lead2`
+voice; pulse 2 stepping out of its pad to answer a short phrase; the second verse recognisably the same material in
+a new order; the hook still the hook.
+
+## 8. A pop song with a designed hook (`--hook 2`) and all three outputs
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex8 && cd ex8
+python $SKILL/scripts/compose.py generate --style pop --key C --bpm 120 --bars 48 --seed 1 --progression axis --hook 2 --organic 2 --out hook.txt --report gen.json
+python $SKILL/scripts/song_rom.py hook.txt --out hook.gbc --title "Hook Demo"
+python $SKILL/scripts/song_midi.py hook.txt --out hook.mid
+python $SKILL/scripts/song_wav.py hook.txt --out hook.wav --seconds 30
+```
+Produced: the 48-bar verse-chorus plan of example 3 with its chorus hook designed first: a falling contour over
+8 semitones, rhythm `x..x .... x... x.x. x... x... x... ..-.` (8 onsets, the anticipation on the 16th before beat
+2, the landing on beat 3 of bar 2, a breath), the leap at note 5, the hum test `G5 G5 F5 F5 C5 B4 C5 C5`; the
+report's `hook.metrics`: a 2-bar cell heard 5 times note for note (2.9 a minute), first at 4.3 s (the intro), range
+8, steps 0.75, song climax at bar 21 (the first chorus's third statement), 11 metrics in the corpus band, 1 near
+(`leap_ratio`), 1 out (`climax_pos`: a falling hook peaks on its first note). 1130 note cells.
+Listen for: the intro's chord voice tapping the hook's rhythm before anyone sings it; the verse as the hook's
+skeleton on fewer, lower notes; the chorus saying the hook twice, lifting its top note the third time (the
+highest note of the song, once per chorus), then cadencing; the outro repeating the hook's second bar twice.
+
+## 9. The earworm surprise (`--hook 3`) on the house blend and on a 64-bar song with a bridge
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex9 && cd ex9
+python $SKILL/scripts/compose.py generate --style rock --key E --bpm 146 --bars 28 --seed 3 --texture fusion --phrases 2 --hook 3 --organic 2 --out blend.txt --report blend.json
+python $SKILL/scripts/compose.py generate --style pop --key D --bpm 128 --bars 64 --seed 2 --phrases 2 --hook 3 --out long.txt --report long.json
+python $SKILL/scripts/song_rom.py blend.txt long.txt --out two.gbc --title "Hook Demo 2"
+python $SKILL/scripts/song_midi.py long.txt --out long.mid
+```
+Produced: `blend.txt` = the stage form (intro 4, A B C) with the fusion texture and the motif banks, A stating a
+falling 12-semitone hook (`B4 D5 B4 B4 D4 E4 G4 A4 B4`: the leap at note 5 is a major sixth down resolved by step,
+the surprise), B previewing its skeleton, C lifting it with the top note; the hook is first heard at 3.2 s and 3
+times note for note (4.0 a minute), 12 metrics in band, 1 near, 0 out. `long.txt` = 64 bars (two verses,
+pre-choruses, choruses, a bridge, a final chorus, outro) on an arch hook of 9 semitones (`D5 B5 A5 A5 G5 F#5 E5 D5`,
+a sixth up at note 2 resolved by step), heard 7 times note for note (3.5 a minute), the wave bass quoting it two
+octaves down in bars 45-46 (the bridge), the final chorus's third statement landing an 8th late; 10 metrics in
+band, 3 near, 0 out. 792 and 1476 note cells.
+Listen for: the sixth in the hook (it is the one interval you remember); the bass singing the hook alone under
+the bridge; the last chorus leaning on its final note; and that every chorus states the hook with the same
+pitches, so the ear can hum along by the second one.
+
+## 10. Call and response on two sides (`--pan call`)
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex10 && cd ex10
+python $SKILL/scripts/compose.py generate --style rock --key A --bpm 112 --bars 40 --seed 5 --form blues12 --pan call --out call.txt --report gen.json
+python $SKILL/scripts/compose.py compile call.txt --out music_data.c --report compile.json
+python $SKILL/scripts/song_rom.py call.txt --out call.gbc
+python $SKILL/scripts/song_midi.py call.txt --out call.mid --report midi.json
+python $SKILL/scripts/song_wav.py call.txt --out call.wav --seconds 20
+python $SKILL/scripts/audio_probe.py --rom call.gbc --out probe --pre wait:60 --seconds 40
+```
+Produced: the twelve-bar blues of example 4 (40 bars, 858 note cells, 2566 ROM bytes) with 6 pan events on pulse 1
+(sides C, L, R: the call of each head on the left, its answer on the right, the turnaround lick and the solo centre;
+the generate report's `pan` block lists the moves, the compile report `pan_events` / `pan_sides`); MIDI 2656 notes
+in 22.4 KB with 6 CC10 events on the lead track and none elsewhere; a 20 s stereo WAV whose channels differ (left
+3178 RMS, right 2980: the first call sits left); probe over 40 s: `pan_events` 4, `solo_reliable` true, pulse 1
+`stereo.side` moving (305 frames left, 100 right, 269 centre, balance -0.22), wave and noise `side` C, music
+detected. Without `--pan call` the same command writes a byte-identical score to example 4's.
+Listen for (headphones; the handheld speaker is mono): the call phrase on the left, the answer line over V-IV from
+the right, the lick back in the middle, the boogie bass and the kit never moving; one register write per change, so
+no click at the switch.
+
+## 11. Ska: the skank, a walking bass, a horn-line hook
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex11 && cd ex11
+python $SKILL/scripts/compose.py generate --style ska --key C --bpm 168 --bars 48 --seed 2 --organic 2 --out ska.txt --report gen.json
+python $SKILL/scripts/song_rom.py ska.txt --out ska.gbc --title "Ska Demo"
+python $SKILL/scripts/song_midi.py ska.txt --out ska.mid
+python $SKILL/scripts/audio_probe.py --rom ska.gbc --out probe --pre wait:60 --seconds 10
+```
+Produced: 48 bars (intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8, outro 4) on the
+`skank` progression (I IV V V = C F G G), 5 frames per row (the chip plays 168 as 180), 1159 note cells, 4248 ROM
+bytes, 64 s per loop; MIDI 2332 notes in 20 KB; probe: four channels active in the play window (pulse 1 at 77%,
+pulse 2 at 47% = the chops, wave at 99%, 39 drum hits in 10 s). The report's `syncopation` reads lead 1.3,
+**chords 6.5 with every strike off the beat**, bass 0.3, kick+snare 0.05: ska's syncopation is the skank.
+Listen for: the chord chops on every off-8th (`@skank`, 25% duty, a 9-frame decay) against kick 1 and 3 and the
+cross-stick on 2 and 4; the walking quarter bass (root, 3rd, 5th, 6th) turning into 8ths with octave jumps in the
+chorus; the horn hook on pulse 1 pushing the and-of-4 over the bar line; the stop-time fill (`S . S T`) closing
+each phrase; the open hats when the chorus arrives.
+
+## 12. A 2010s pop hit (tropical groove) and its straight twin
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex12 && cd ex12
+python $SKILL/scripts/compose.py generate --style pop --groove tropical --key F --bpm 100 --bars 48 --seed 3 --organic 2 --out hit.txt --report gen.json
+python $SKILL/scripts/compose.py generate --style pop --groove tropical --key F --bpm 100 --bars 48 --seed 3 --organic 2 --syncopation 0 --out hit_straight.txt --report gen_straight.json
+python $SKILL/scripts/song_rom.py hit.txt hit_straight.txt --out hit.gbc --title "Pop Hit Demo"
+python $SKILL/scripts/song_wav.py hit.txt --out hit.wav --seconds 30
+```
+Produced: the same 48-bar verse-chorus plan as example 3 on `axis` (F C Dm Bb), 9 frames per row, 904 note cells,
+4852 ROM bytes, 115 s per loop, 12 instruments (the `hook` is the pluck: 25% duty, `env=E3`, `penv=12,1`; `pluck2`
+the 12.5% chord pluck on pulse 2). `syncopation`: lead 3.9 (58% of its onsets off the beat), chords 5.6, bass 1.5
+(the tresillo), kick+snare 0.05 by the index and 35% off the beat (the dembow snare on the and-of-2). The straight
+twin (`--syncopation 0`, same seed) scores lead 1.2 / chords 0.6 / bass 0.3 with 2% of the lead off the beat: the
+same melody, the same chords, the same form, only the placement moved. The two-song player boots into the hit;
+START switches to the twin.
+Listen for: the sparse verse (kick on 1, snare on 4, the bass root once a bar, the pad hinting two off-beat rows of
+the hook); the pre-chorus build (16th hats, the snare lift, the bass walking the tresillo); the chorus as a drop
+(dembow kick and snare, the 0-6-12 bass, the plucked hook on pulse 1 anticipating the next downbeat on the last
+16th, pulse 2 plucking the chord on the hook's off-beat rows); then the twin, which has the notes and none of the
+bounce.

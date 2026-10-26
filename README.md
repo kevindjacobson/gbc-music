@@ -4,12 +4,20 @@ Four-channel music for the Game Boy Color, from a one-line idea to a cartridge R
 
 - A **driver** in C (GBDK-2020) that plays tracker-style song tables on the four hardware voices: arpeggiated
   chords, echo, trills, resolving bends, portamento, duty and wavetable sequences, level envelopes, a drum kit,
-  and a contract that lets sound effects borrow a channel and hand it back.
+  stereo pans (hard left / right per channel, one register write per change: a ping-pong echo, call and response
+  on two sides, an auto-pan pad), and a contract that lets sound effects borrow a channel and hand it back.
 - A **plain-text score format** (one block per bar, four lanes of sixteenth-note cells) and a **compiler** that turns
   a score into C tables.
 - A **deterministic generator**: style, key, tempo, bar count and seed in; a whole song out, with song forms
-  (stage loop, verse-chorus, AABA, twelve-bar blues), a progression library in Roman numerals, two textures and an
-  "organic" layer that keeps a machine-written song from sounding like one.
+  (stage loop, verse-chorus, AABA, twelve-bar blues), a progression library in Roman numerals, two textures, an
+  "organic" layer that keeps a machine-written song from sounding like one, and **genre grooves** (swing and shuffle on
+  a triplet grid, ska, reggae one-drop, funk, four-on-the-floor dance pop, a 2010s tropical-house pop hit) with a
+  syncopation knob and a syncopation index per lane in every report.
+- A **hook engine** (`--hook 1|2|3`): the chorus or stage-A hook is designed first (a corpus contour class, a
+  singable compass, one placed leap, a rhythm with one anticipation and a breath), repeats note for note with the
+  third statement changed, and the verse, pre-chorus, intro and outro derive from it; the report measures the
+  hook (length, hearings per minute, range, contour, steps and leaps, climax) against bands taken from two
+  classic game soundtracks.
 - **Three outputs from one score**: a `.gbc` player ROM for real hardware or any emulator, a General MIDI `.mid`
   for a DAW, and a `.wav` / `.mp3` rendered through a cycle-exact emulation of the chip.
 - A **listener** that runs the ROM headlessly, isolates each channel and reports what actually sounds, plus an
@@ -76,7 +84,7 @@ python $SKILL/scripts/compose.py compile music/main.txt --out src/music_data.c  
 ```c
 #include "music.h"
 #include "music_data.h"                 /* extern const Song song_main; */
-/* at boot, once: */   NR52_REG = 0x80; NR50_REG = 0x77; NR51_REG = 0xFF;
+/* at boot, once: */   NR52_REG = 0x80; NR50_REG = 0x77; music_set_pan_base(0xFF);   /* the driver owns NR51 from here */
 /* on the title: */    music_init(&song_main);
 /* every frame: */     wait_vbl_done(); /* your effects */ music_tick();
 /* in a sound effect, before writing registers: */ music_sfx(MUSIC_CH1 | MUSIC_CH4, 18);
@@ -95,7 +103,17 @@ python $SKILL/scripts/compose.py generate --style rock --key A --bpm 112 --bars 
 python $SKILL/scripts/compose.py generate --style fusion --key F# --bpm 100 --bars 32 --seed 7 --form aaba --out title.txt
 python $SKILL/scripts/compose.py generate --style ambient --key D --bpm 84 --bars 16 --seed 2 --bend none --out bed.txt            # a quiet bed
 python $SKILL/scripts/compose.py generate --style pop --key G --bpm 128 --bars 48 --seed 9 --progression "I bVII IV I" --out own.txt   # your own numerals
+python $SKILL/scripts/compose.py generate --style pop --key C --bpm 120 --bars 48 --seed 1 --progression axis --hook 3 --organic 2 --out hook.txt --report hook.json   # the hook designed first, measured against the corpora
+python $SKILL/scripts/compose.py generate --style rock --key A --bpm 112 --bars 40 --seed 5 --form blues12 --pan call --out call.txt   # the call left, the answer right (headphones, WAV, MIDI CC10)
+python $SKILL/scripts/compose.py generate --style ska --key C --bpm 168 --bars 48 --seed 2 --organic 2 --out ska.txt                     # ska: the skank, walking bass, horn hook
+python $SKILL/scripts/compose.py generate --style pop --groove tropical --key F --bpm 100 --bars 48 --seed 3 --organic 2 --out hit.txt   # a 2010s pop hit: dembow, tresillo bass, plucked hook
+python $SKILL/scripts/compose.py generate --style pop --groove swing --key G --bpm 140 --bars 32 --seed 4 --out swing.txt               # swing on the 12-row triplet grid
 ```
+
+**Groove and syncopation.** `--groove` picks the genre's kit, bass, chord-stab and hook rhythms (with a tempo band);
+`--syncopation 0..3` straightens or pushes them (2 is the medium level the groove research found most danceable); every
+report prints the syncopation index per lane next to which you can aim at the measured corpus bands (`SKILL.md` §10,
+`docs/DESIGN_NOTES.md`).
 
 **Make it breathe, then edit it.** `--organic 2` varies repeats, adds rests, fills, accents and per-section timbre
 changes deterministically; the score it writes is the starting point for a hand edit (let the lead sit out a bar,

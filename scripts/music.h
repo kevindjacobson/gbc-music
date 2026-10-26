@@ -8,6 +8,8 @@
  *
  * Cell = 3 bytes per channel per row: [note][inst<<4 | fx][param]
  *   note   0 = nothing (continue), 1..127 = MIDI note (C-4 = 60), MUSIC_OFF = key off.
+ *          0x80 | side (0x81 right, 0x82 left, 0x83 both; pulse lanes): a pan change on an effect-only cell
+ *          (MUSIC_PAN_NOTE); the cell's fx / param still apply, the held note keeps sounding.
  *          Noise channel: low nibble = drum 1..15 (index + 1 into Song.drums), high nibble = a second
  *          drum re-struck MUSIC_STACK_FRAMES later (a kick+hat / snare+hat "stack").
  *   inst   0 = keep the current instrument, 1..15 = Song.instruments[inst - 1].
@@ -23,6 +25,13 @@
  *                   style: a PWM sweep, a bell that dulls), NR32 level steps as the only click-free dynamics
  *                   (decay full -> half -> quarter -> off = pluck/bell, or the reverse = swell).
  *   noise timbre  = NR43 clock + LFSR width (7-bit = tonal/metallic), NR42 decay, optional second stage.
+ *
+ * Panning (NR51, hard left / right / both per channel; mono on the handheld speaker): the driver owns NR51 through
+ * a shadow byte = music_set_pan_base() mask (the game's, default 0xFF) & the music's own per-channel pans, written
+ * only when the result changes (never per frame). Pans belong to the pulse lanes: MUSIC_FX_PAN on a note cell, the
+ * pan pseudo-note on an effect-only cell, an echo cell with a side, or a pulse Instrument's `wave` byte (a fixed side
+ * per note, or an auto-pan that alternates L/R every N frames). music_init() and music_stop() put every channel
+ * back to both. A channel held by music_sfx() keeps whatever the SFX wrote in NR51 until the hold ends.
  */
 #ifndef MUSIC_H
 #define MUSIC_H
@@ -52,12 +61,21 @@
 #define MUSIC_FX_BEND    10  /* param = frames<<4 | signed 4-bit semitone offset: start `offset` semitones away and glide onto the written note in `frames` frames, then hold it (a bend that resolves) */
 #define MUSIC_FX_TREM    11  /* param = depth<<4 | rate: tremolo, volume dips by `depth` steps every `rate` frames. Click-free on the wave channel (NR32 level), a re-strike on pulses: pads only, rate >= 6 */
 #define MUSIC_FX_PORTA   12  /* param = frames: portamento, glide from the previous note's pitch onto this note in `frames` frames (1..255), then hold */
+#define MUSIC_FX_PAN     13  /* pulse lanes. param = side (MUSIC_PAN_R / L / C): this note and the following ones sound on that side until the next pan; not a running effect (the channel's fx becomes none, as for a plain note) */
+
+/* Pan sides: the two NR51 bits of a channel (bit 0 = right output, bit 1 = left output). */
+#define MUSIC_PAN_R    1
+#define MUSIC_PAN_L    2
+#define MUSIC_PAN_C    3          /* both outputs: the default for every channel */
+#define MUSIC_PAN_NOTE 0x80       /* pulse lanes: note byte 0x80 | side on an effect-only cell = a pan change (0x81..0x83; never 0xFE) */
 
 typedef struct {
     uint8_t duty;  /* pulse: NRx1 duty bits (0x00 12.5%, 0x40 25%, 0x80 50%, 0xC0 75%); wave: unused */
     uint8_t env;   /* pulse: NRx2 (vvvv d sss: volume, direction 8 = up, step). wave: volume<<4 only
                       (0..15 maps to NR32: 1-4 quarter, 5-9 half, 10-15 full; the wave channel has no envelope) */
-    uint8_t wave;  /* wave: index into Song.waves (16 bytes = 32 samples each); pulse: unused */
+    uint8_t wave;  /* wave: index into Song.waves (16 bytes = 32 samples each). pulse: pan, bits 0-1 = side struck
+                      with every note (0 = leave the channel's pan alone, 1 right, 2 left, 3 both), bits 2-7 = auto-pan
+                      period in frames (0 = none): the held note alternates left / right every that many frames */
     uint8_t vib;   /* auto-vibrato on held notes: depth<<4 | delay in 4-frame units (0 = none) */
     uint8_t seq;   /* pulse: duty sequence, four 2-bit duties a<<6|b<<4|c<<2|d (0..3 = 12.5/25/50/75%) rotated every
                       `mod` rate frames without re-striking (the RPG duty-cycle pattern). wave: number of extra tables
@@ -107,5 +125,10 @@ uint8_t music_row(void);                    /* current row inside the bar (0..ro
  * uses and roughly how many frames it lasts. The driver leaves those channels alone and re-strikes
  * their notes when the hold runs out. */
 void music_sfx(uint8_t channels, uint8_t frames);
+
+/* Panning base: the game's NR51 mask (default 0xFF, every channel to both outputs). The driver ANDs its own pans
+ * into it and writes NR51 only when the result changes, so the game never writes NR51 itself: call this once at
+ * boot after NR52 / NR50 (it writes NR51 at once), and again when the game wants a channel on one side. */
+void music_set_pan_base(uint8_t mask);
 
 #endif

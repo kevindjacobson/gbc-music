@@ -2,16 +2,19 @@
 
 `gbc-music` is a complete, self-contained music system for the Game Boy Color sound chip:
 
-- a **driver** (`scripts/music.c`, `music.h`): 20 KB of C source for GBDK-2020 (5.2 KB of code, 133 bytes of RAM)
+- a **driver** (`scripts/music.c`, `music.h`): 22 KB of C source for GBDK-2020 (5.8 KB of code, 209 bytes of RAM)
   that plays tracker-style song tables on the four hardware voices (two pulse channels, a 32-sample wave channel, a noise channel), with arpeggiated chords,
-  echo, trills, resolving bends, portamento, duty and wavetable sequences, level envelopes, a drum kit, and a contract
+  echo, trills, resolving bends, portamento, duty and wavetable sequences, level envelopes, a drum kit, stereo pans
+  (hard left / right per pulse channel through an NR51 shadow, one write per change), and a contract
   that lets sound effects borrow a channel and hand it back;
 - a **score format** (plain text, one block per bar, four lanes of sixteenth-note cells) and a **compiler**
   (`scripts/compose.py compile`) that turns a score into C tables the driver reads from ROM;
 - a **generator** (`scripts/compose.py generate`) that writes a whole song deterministically from a style, a key, a
   tempo, a bar count and a seed, with song forms (stage loop, verse-chorus, AABA, twelve-bar blues), a progression
-  library in Roman numerals, two textures and an organic layer that keeps a machine-written song from sounding like
-  one;
+  library in Roman numerals, two textures, a phrase grammar (banks of three ideas per section, rests written in,
+  call and response), a hook engine, genre grooves (swing, shuffle, ska, one-drop, funk, dance, latin, half-time riff
+  rock, a 2010s pop hit) with a syncopation knob and index, and an organic layer that keep a machine-written song
+  from sounding like one;
 - three **outputs** from the same score: a `.gbc` player ROM for real hardware or any emulator (`song_rom.py`), a
   General MIDI `.mid` for a DAW (`song_midi.py`), and a `.wav` / `.mp3` rendered through a cycle-exact emulation of the
   chip (`song_wav.py`);
@@ -68,7 +71,7 @@ To put the song in a game instead of the player ROM: `OUTPUTS.md` (GBC section) 
 | `OUTPUTS.md` | the three outputs: GBC integration step by step, the player ROM, the MIDI mapping table, WAV/MP3 |
 | `INTEGRATION.md` | the driver's contract for a game: init, tick, SFX hand-over, volume, hooks |
 | `DESIGN_NOTES.md` | the measured facts and the rules they produced |
-| `EXAMPLES.md` | six worked examples with the exact commands and what to listen for |
+| `EXAMPLES.md` | twelve worked examples with the exact commands and what to listen for |
 | `TROUBLESHOOTING.md` | silent channels, clicks, builds that fail, probes that disagree |
 | `LIMITS.md` | what the chip and the driver cannot do, and the hard numbers |
 | `PRESENTATION.md` | a 5-10 minute demo script with timings and a fallback |

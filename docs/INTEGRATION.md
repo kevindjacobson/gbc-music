@@ -18,13 +18,19 @@ format reference: `Instrument`, `Drum`, `Song`, the `MUSIC_FX_*` effect codes an
 | `void music_set_volume(uint8_t vol)` | Master music volume 0..15 (default 15), applied as a scale to every channel's volume at its next strike (pulse / noise envelopes) or level step (wave). Ducking under a sting: 6, then back to 15. |
 | `uint8_t music_playing(void)` | 1 while a song is loaded. |
 | `uint8_t music_bar(void)`, `uint8_t music_row(void)` | Current order (bar) index and row inside it: for picture-follows-music effects. |
-| `void music_sfx(uint8_t channels, uint8_t frames)` | **The SFX contract.** Call it with the `MUSIC_CHn` bits an effect is about to write and roughly how many frames the effect lasts. The driver stops writing those channels for that long (keeping time), then re-strikes the note it was playing (or stays silent if the note has ended). A longer hold already in place is kept. |
+| `void music_sfx(uint8_t channels, uint8_t frames)` | **The SFX contract.** Call it with the `MUSIC_CHn` bits an effect is about to write and roughly how many frames the effect lasts. The driver stops writing those channels for that long (keeping time), then re-strikes the note it was playing (or stays silent if the note has ended). A longer hold already in place is kept. While a channel is held the driver also leaves its NR51 bits alone (an effect may pan itself); when the hold ends it rewrites its NR51 shadow. |
+| `void music_set_pan_base(uint8_t mask)` | **The game's panning.** `mask` is the NR51 value the game wants with no music pans (default `0xFF`, every channel to both outputs). The driver writes `mask & <the music's pans>` to NR51 at once and again whenever either side changes, never per frame. Call it once at boot after NR52 / NR50 instead of writing NR51, and again when the game wants a channel on one side. |
 
 ## What the game owns
 
-- **NR52 / NR50 / NR51** (APU power, master volume, panning): write them once at boot (for example in an
-  `sfx_init()`: `NR52 = 0x80` first, `NR50 = 0x77`, `NR51 = 0xFF`). The driver never touches them, so a game may pan an
-  effect; but note `audio_probe.py` flags per-frame NR51 rewrites as `solo_reliable: false`.
+- **NR52 / NR50** (APU power, master volume): write them once at boot (for example in an `sfx_init()`: `NR52 = 0x80`
+  first, `NR50 = 0x77`). The driver never touches them.
+- **The panning base**: `music_set_pan_base(0xFF)` right after NR50, never `NR51 = 0xFF` directly. The driver owns NR51
+  through a shadow byte (the game's base mask & the music's pans: echo sides, answers, pad auto-pans from the score)
+  and writes it only when the value changes, so `audio_probe.py` counts every write as a pan event and keeps its
+  per-channel passes reliable while those are rare. A game that wants a channel on one side calls
+  `music_set_pan_base` again; an SFX that pans itself may write NR51 while it holds the channel (the driver puts its
+  shadow back when the hold ends). `music_init` and `music_stop` reset the music's pans to centre.
 - **Sound effects**: write registers directly, after `music_sfx()`. The driver zeroes NR10 (the hardware sweep) on
   every pulse-1 strike, so an effect that used the sweep leaves nothing behind.
 - **Which song plays when**: a title song in `title_enter()`, the main theme in `play_enter()`, `music_set_volume(6)`
@@ -34,13 +40,18 @@ format reference: `Instrument`, `Drum`, `Song`, the `MUSIC_FX_*` effect codes an
 ## What the driver owns
 
 - NR10..NR14, NR21..NR24, NR30..NR34 and wave RAM, NR41..NR44, except on channels held by `music_sfx`.
+- NR51 (through the shadow byte above): the music's pans are hard left / right / both per pulse channel, from the
+  score (`<` `>` `^` markers, `echo:5,3,R`, an instrument's `pan=`); the wave and noise channels are never panned by
+  the music.
 - Timing: `Song.frames_per_row` frames per row; a bar is `rows_per_pattern` rows; the song restarts at `loop_to`.
 - The wave channel's octave: the period table is the pulse table, the driver adds 12 semitones for wave notes.
 
 ## Memory and ROM
 
-The driver's RAM: four `Chan` structs, a 16-slot echo ring and a few globals: 133 bytes (measured from the
-assembler listing of `music.c`, GBDK-2020 4.5.0). Code and the period table: 5250 bytes. Song data per the compile
+The driver's RAM: four `Chan` structs, a 16-slot echo ring and a few globals: 209 bytes (`_DATA` 205 +
+`_INITIALIZED` 4 in the assembler symbols of `music.c`, GBDK-2020 4.5.0; the panning shadow, echo side, per-channel
+sides and auto-pan timers are 11 of them). Code and the period table: 5819 bytes (`_CODE`; 5250 before panning, the
+569 bytes are the NR51 shadow logic, the pan effects and the auto-pan). Song data per the compile
 report (`rom_bytes`): 12 unique bars about 2 KB, a 32-bar fusion theme 5-6 KB; a three-song player ROM (32 + 24 + 16
 bars) uses 16 KB of bank 0 in total, runtime included. Everything is in bank 0 with the rest of the game; song tables can be moved to a bank with `__bank` pragmas
 if bank 0 fills, as long as the bank is switched in before `music_tick` runs.

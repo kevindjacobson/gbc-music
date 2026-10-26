@@ -16,7 +16,10 @@
  * Colours are CSS custom properties read from the container (fallbacks in TOKENS): --pr-pulse1 --pr-pulse2 --pr-wave
  * --pr-noise --pr-bg --pr-grid --pr-grid-strong --pr-ink --pr-muted --pr-playhead --pr-lit --pr-panel --pr-line.
  * Redraws only on requestAnimationFrame while its clip plays or while the user interacts; one roll per clip animates.
- * prefers-reduced-motion keeps the playhead but drops the glow. devicePixelRatio aware. */
+ * prefers-reduced-motion keeps the playhead but drops the glow. devicePixelRatio aware.
+ * Panned songs (notes with `pan` -1 / 1 / "LR", a top-level `pan_changes` list): a note on one side carries a bright
+ * wedge on that edge (left edge = left, right edge = right; both for an auto-pan) and a thin L / R strip above the
+ * noise lane shows each pulse channel's side over time; a song without pans draws exactly as before. */
 (function (global) {
   'use strict';
   var FPS = 4194304 / 70224;
@@ -29,7 +32,7 @@
   };
   var NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   var BLACK = { 1: 1, 3: 1, 6: 1, 8: 1, 10: 1 };
-  var GUTTER = 36, RULER = 20, NOISE_H = 34, PAD_R = 8;
+  var GUTTER = 36, RULER = 20, NOISE_H = 34, PAD_R = 8, PAN_H = 14;
   var reduced = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
   var css = '.pr-root{position:relative;font:12px/1.3 system-ui,sans-serif;color:var(--pr-ink,#e9e9e4);background:var(--pr-panel,transparent);border-radius:8px;overflow:hidden}' +
     '.pr-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;background:var(--pr-bg,#15161a);border-bottom:1px solid var(--pr-line,rgba(127,127,127,.35))}' +
@@ -72,6 +75,7 @@
     this.fps = data.fps || FPS;
     this.fpr = data.frames_per_row || 6;
     this.rows = data.rows_per_bar || 16;
+    this.rowsPerBeat = data.rows_per_beat || 4;
     this.bars = data.bars || 1;
     this.secPerRow = this.fpr / this.fps;
     this.secPerBar = this.rows * this.secPerRow;
@@ -105,6 +109,11 @@
     var nlo = 127, nhi = 0;
     for (i = 0; i < this.notes.length; i++) { n = this.notes[i]; if (n.ch !== 3) continue; nlo = Math.min(nlo, n.midi); nhi = Math.max(nhi, n.midi); }
     this.nLo = nlo > nhi ? 60 : nlo - 1; this.nHi = nlo > nhi ? 100 : nhi + 1;
+    // pans: per pulse channel a list of [musicSeconds, side] (-1 left, 0 centre, 1 right); the strip only exists when the song pans
+    this.pans = [[], []];
+    var pc = data.pan_changes || [];
+    for (i = 0; i < pc.length; i++) if (pc[i].ch < 2) this.pans[pc[i].ch].push([(pc[i].f || 0) / this.fps, pc[i].pan]);
+    this.hasPan = pc.length > 0 || this.notes.some(function (x) { return x.pan != null; });
 
     // DOM
     var root = this.root = el(this.doc, 'div', 'pr-root');
@@ -130,7 +139,7 @@
     var legend = el(this.doc, 'div', 'pr-legend');
     legend.appendChild(this.legendItem('pulse1', 'pulse 1')); legend.appendChild(this.legendItem('pulse2', 'pulse 2'));
     legend.appendChild(this.legendItem('wave', 'wave')); legend.appendChild(this.legendItem('noise', 'noise'));
-    legend.appendChild(el(this.doc, 'span', null, 'bars on the ruler, seconds on hover; faded tail = envelope has died while the key is held'));
+    legend.appendChild(el(this.doc, 'span', null, 'bars on the ruler, seconds on hover; faded tail = envelope has died while the key is held' + (this.hasPan ? '; bright edge = note panned to that side, L / R strip = each pulse channel\u2019s side' : '')));
     root.appendChild(legend);
     // hide static fallbacks (the probe PNG) once the live roll exists
     var fb = container.querySelectorAll('.pr-fallback, img');
@@ -349,6 +358,7 @@
     if (n.bend) s += ' bend ' + n.bend[0] + ' in ' + n.bend[1] + 'f'; if (n.porta) s += ' porta ' + n.porta + 'f';
     if (n.slide) s += ' slide ' + n.slide; if (n.vib) s += ' vib ' + n.vib.join(','); if (n.trem) s += ' trem ' + n.trem.join(',');
     if (n.penv) s += ' penv +' + n.penv[0] + '/' + n.penv[1] + 'f'; if (n.cut) s += ' cut ' + n.cut + 'f'; if (n.echo) s += ' (echo)'; if (n.split) s += ' (32nd)';
+    if (n.pan === -1) s += ' pan L'; else if (n.pan === 1) s += ' pan R'; else if (n.pan === 'LR') s += ' auto-pan L/R every ' + n.pan_f + 'f';
     return s;
   };
   Roll.prototype.noteAt = function (x, y) {
@@ -374,9 +384,9 @@
     this.invalidate();
   };
   Roll.prototype.geom = function () {
-    var self = this, top = RULER + 4, noiseTop = this.cssH - NOISE_H, h = noiseTop - top - 6;
+    var self = this, top = RULER + 4, noiseTop = this.cssH - NOISE_H, panTop = noiseTop - (this.hasPan ? PAN_H : 0), h = panTop - top - 6;
     var nRows = this.pHi - this.pLo + 1, rowH = h / nRows;
-    return { top: top, rowH: rowH, noiseTop: noiseTop, h: h,
+    return { top: top, rowH: rowH, noiseTop: noiseTop, panTop: panTop, h: h,
       pitchY: function (m) { return top + (self.pHi - m) * rowH; },
       noiseY: function (m) { return noiseTop + 6 + (self.nHi - m) / Math.max(1, self.nHi - self.nLo) * (NOISE_H - 12); } };
   };
@@ -401,16 +411,17 @@
     ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath();
     for (m = this.pLo; m <= this.pHi; m++) if (m % 12 === 0) { var yy = Math.round(g.pitchY(m) + g.rowH) + 0.5; ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); }
     ctx.stroke();
-    // noise strip separator
+    // noise strip separator (and the pan strip above it when the song pans)
     ctx.strokeStyle = C.gridStrong; ctx.beginPath(); ctx.moveTo(x0, g.noiseTop + 0.5); ctx.lineTo(x1, g.noiseTop + 0.5); ctx.stroke();
+    if (this.hasPan) this.drawPanStrip(ctx, g, x0, x1, tA, tB);
     // bar / beat / row lines
     var pxPerBar = this.secPerBar * pxPerSec, pxPerRow = this.secPerRow * pxPerSec;
     var b0 = Math.max(0, Math.floor(tA / this.secPerBar)), b1 = Math.min(this.bars, Math.ceil(tB / this.secPerBar));
     ctx.beginPath(); ctx.strokeStyle = C.grid;
-    if (pxPerRow >= 7) for (var b = b0; b < b1; b++) for (var r = 1; r < this.rows; r++) { if (r % 4 === 0 && pxPerBar >= 24) continue; var xr = Math.round(this.xOf(b * this.secPerBar + r * this.secPerRow)) + 0.5; ctx.moveTo(xr, RULER); ctx.lineTo(xr, g.noiseTop); }
+    if (pxPerRow >= 7) for (var b = b0; b < b1; b++) for (var r = 1; r < this.rows; r++) { if (r % this.rowsPerBeat === 0 && pxPerBar >= 24) continue; var xr = Math.round(this.xOf(b * this.secPerBar + r * this.secPerRow)) + 0.5; ctx.moveTo(xr, RULER); ctx.lineTo(xr, g.noiseTop); }
     ctx.stroke();
     if (pxPerBar >= 24) { ctx.beginPath(); ctx.strokeStyle = C.gridStrong; ctx.globalAlpha = 0.6;
-      for (b = b0; b < b1; b++) for (r = 4; r < this.rows; r += 4) { var xb = Math.round(this.xOf(b * this.secPerBar + r * this.secPerRow)) + 0.5; ctx.moveTo(xb, RULER); ctx.lineTo(xb, H); }
+      for (b = b0; b < b1; b++) for (r = this.rowsPerBeat; r < this.rows; r += this.rowsPerBeat) { var xb = Math.round(this.xOf(b * this.secPerBar + r * this.secPerRow)) + 0.5; ctx.moveTo(xb, RULER); ctx.lineTo(xb, H); }
       ctx.stroke(); ctx.globalAlpha = 1; }
     ctx.beginPath(); ctx.strokeStyle = C.gridStrong;
     var barStep = pxPerBar >= 6 ? 1 : pxPerBar >= 1.5 ? 4 : 8;
@@ -453,6 +464,12 @@
       }
       ctx.shadowBlur = 0;
       if (n.echo && wd > 6) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = alphaOf(col, 0.9); ctx.strokeRect(xa + 0.5, y + 0.5, wd - 1, hgt - 1); ctx.restore(); }
+      if (n.pan != null && wd >= 3) {   // a bright wedge on the side the note sits on (both edges for an auto-pan)
+        var ww = Math.min(3, wd / 2);
+        ctx.fillStyle = lit ? C.playhead : C.lit;
+        if (n.pan === -1 || n.pan === 'LR') ctx.fillRect(xa, y, ww, hgt);
+        if (n.pan === 1 || n.pan === 'LR') ctx.fillRect(xa + wd - ww, y, ww, hgt);
+      }
       if (pxPerRow >= 4) {   // pitch motion
         ctx.strokeStyle = lit ? C.lit : alphaOf(col, 0.95); ctx.lineWidth = 1.5;
         var yc = y + hgt / 2;
@@ -494,6 +511,23 @@
     } else this.playheadX = null;
     this.updatePos();
   };
+  Roll.prototype.drawPanStrip = function (ctx, g, x0, x1, tA, tB) {   // each pulse channel's side over time: L in the top half, R in the bottom half
+    var top = g.panTop, half = (PAN_H - 4) / 2, C = this.colors, self = this;
+    ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(x0, top + 0.5); ctx.lineTo(x1, top + 0.5); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.font = '9px system-ui,sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('L', GUTTER - 4, top + 2 + half / 2); ctx.fillText('R', GUTTER - 4, top + 2 + half + half / 2); ctx.textAlign = 'left';
+    for (var c = 0; c < 2; c++) {
+      var segs = this.pans[c], side = 0, tPrev = 0;
+      var paint = function (from, to, sd) {
+        if (sd === 0 || to <= tA || from >= tB) return;
+        var xa = Math.max(x0, self.xOf(from)), xb = Math.min(x1, self.xOf(to));
+        ctx.fillStyle = alphaOf(C.ch[c], 0.85);
+        ctx.fillRect(xa, top + 2 + (sd < 0 ? 0 : half) + c * 1.5, Math.max(1, xb - xa), Math.max(1, half - 3));
+      };
+      for (var i = 0; i < segs.length; i++) { paint(tPrev, segs[i][0], side); side = segs[i][1]; tPrev = segs[i][0]; }
+      paint(tPrev, this.length, side);
+    }
+  };
   Roll.prototype.redraw = function () { this.draw(this.time()); };
   Roll.prototype.destroy = function () {
     this.destroyed = true; this.unbind();
@@ -528,5 +562,5 @@
     return out;
   }
 
-  global.GbcPianoRoll = { create: function (container, data, opts) { return new Roll(container, data, opts); }, mountAll: mountAll, FPS: FPS, Roll: Roll, version: '1.0.0' };
+  global.GbcPianoRoll = { create: function (container, data, opts) { return new Roll(container, data, opts); }, mountAll: mountAll, FPS: FPS, Roll: Roll, version: '1.1.0' };
 })(typeof window !== 'undefined' ? window : this);
