@@ -1546,8 +1546,8 @@ PHRASE_DENSITY = {"intro": 0.8, "verse": 1.0, "prechorus": 1.3, "chorus": 1.5, "
 # cartridges' habit, instead of a volume accent per note)
 PHRASE_LEAD2 = {"pop": "inst lead2 pulse duty=25 env=C3 vib=2:4", "chip": "inst lead2 pulse duty=25 env=B2 vib=2:4",
                 "rock": "inst lead2 pulse duty=25 env=D3 vib=3:3", "blues": "inst lead2 pulse duty=25 env=C3 vib=3:3",
-                "ska": "inst lead2 pulse duty=12 env=C3 vib=2:4",
-                "fusion": "inst lead2 pulse duty=25 env=C3 vib=2:3"}
+                "fusion": "inst lead2 pulse duty=25 env=C3 vib=2:3",
+                "ska": "inst lead2 pulse duty=12 env=C3 vib=2:4"}   # a thin horn-like answer voice
 
 
 def _cell_state(cell: str) -> str:
@@ -1740,48 +1740,23 @@ def _nearest_degree_in(mel: Melody, centre: int, deg: int, pcs: list[int], reach
     return min(cands, key=lambda d: (abs(d - deg), -d)) if cands else deg
 
 
-def cells_from_rows(rows: tuple[int, ...]) -> list[str]:
-    """A groove's hook rhythm (onset rows of a two-bar motif) as eight beat cells, with a key-off two rows after
-    the last onset when the cell leaves room for one."""
-    cells = [list("....") for _ in range(8)]
-    last = -1
-    for r in rows:
-        if 0 <= r < 32:
-            cells[r // 4][r % 4] = "x"
-            last = max(last, r)
-    if last <= 28:
-        off = min(31, last + 2) if last >= 24 else 30
-        cells[off // 4][off % 4] = "-"
-    return ["".join(c) for c in cells]
-
-
-def design_hook(hrng: random.Random, mel: Melody, centre: int, key: int, mode: str, level: int, *,
-                exclude: tuple[str, ...] = (), contour: str | None = None, cells: list[str] | None = None,
-                rng_range: tuple[int, int] = HOOK_RANGE, head: list[int] | None = None, surprise_ok: bool = True) -> dict:
+def design_hook(hrng: random.Random, mel: Melody, centre: int, key: int, mode: str, level: int) -> dict:
     """The two-bar hook, designed first. A contour class from the corpora's distribution, a compass of HOOK_RANGE
     semitones, a rhythm with one anticipation that lands on beat 3 of bar 2 and breathes before the next downbeat,
     mostly steps with one leap at the class's fixed place (arch: the start; rising / bowl: before the peak;
     falling: the middle), the first and last notes on the key's tonic triad so the cell sits on every chord of the
     chorus without being re-snapped. Level 3 makes the leap an unusual interval (a sixth, now and then a tritone)
     resolved by step on the next note: the earworm surprise at a predictable place."""
-    if contour is None:
-        pool = [(c, w) for c, w in HOOK_CONTOURS if c not in exclude] or list(HOOK_CONTOURS)
-        contour = hrng.choices([c for c, _ in pool], weights=[w for _, w in pool])[0]
-    if cells is None:
-        cells = list(hrng.choice(HOOK_RHYTHMS))
+    contour = hrng.choices([c for c, _ in HOOK_CONTOURS], weights=[w for _, w in HOOK_CONTOURS])[0]
+    cells = list(hrng.choice(HOOK_RHYTHMS))
     events = expand_cells(cells)
     onsets = [r for r, ch in events if ch == "x"]
     n = len(onsets)
-    if n < 4:                                                  # a groove cell too thin to carry a contour: the engine's own rhythm
-        cells = list(hrng.choice(HOOK_RHYTHMS))
-        events = expand_cells(cells)
-        onsets = [r for r, ch in events if ch == "x"]
-        n = len(onsets)
     lo = hrng.choice((-1, 0, 0))
     hi = lo + 1
-    while mel.note(centre, hi) - mel.note(centre, lo) < rng_range[0]:
+    while mel.note(centre, hi) - mel.note(centre, lo) < HOOK_RANGE[0]:
         hi += 1
-    if mel.note(centre, hi) - mel.note(centre, lo) > rng_range[1] and hi - lo > 2:
+    if mel.note(centre, hi) - mel.note(centre, lo) > HOOK_RANGE[1] and hi - lo > 2:
         hi -= 1
     j = {"arch": 1, "rising": round(0.6 * (n - 1)), "falling": round(0.5 * (n - 1)), "bowl": round(0.6 * (n - 1))}[contour]
     j = max(1, min(n - 2, j))
@@ -1806,19 +1781,11 @@ def design_hook(hrng: random.Random, mel: Melody, centre: int, key: int, mode: s
     tonic = [(key + x) % 12 for x in (0, 3 if mode == "minor" else 4, 7)]
     degs[0] = _nearest_degree_in(mel, centre, degs[0], tonic, 1)
     degs[-1] = _nearest_degree_in(mel, centre, degs[-1], tonic, 2)
-    if head and n >= 5:                                        # the resemblance rule: this hook opens with the main hook's first intervals
-        for i, dd in enumerate(head[:3], start=1):
-            degs[i] = degs[i - 1] + dd
-        gap = degs[4] - degs[3]
-        if abs(gap) > 2:
-            shift = gap - (2 if gap > 0 else -2)
-            degs = degs[:4] + [d - shift for d in degs[4:]]
-        degs[-1] = _nearest_degree_in(mel, centre, degs[-1], tonic, 2)
-    while max(mel.note(centre, d) for d in degs) - min(mel.note(centre, d) for d in degs) < rng_range[0]:
+    while max(mel.note(centre, d) for d in degs) - min(mel.note(centre, d) for d in degs) < HOOK_RANGE[0]:
         top = max(degs)                                        # the anchors narrowed the cell: the peak goes up a step
         degs = [d + 1 if d == top else d for d in degs]
     surprise = None
-    if level >= 3 and surprise_ok and j + 1 < n - 1:
+    if level >= 3 and j + 1 < n - 1:
         prev = mel.note(centre, degs[j - 1])
         sign = 1 if degs[j] >= degs[j - 1] else -1
         want = [HOOK_TRITONE] if hrng.random() < 0.3 else [HOOK_BIG_LEAP, HOOK_BIG_LEAP + 1]
@@ -1839,46 +1806,7 @@ def design_hook(hrng: random.Random, mel: Melody, centre: int, key: int, mode: s
             k += 1
     notes = [mel.note(centre, d) for d in degs]
     return {"motif": motif, "cells": cells, "contour": contour, "leap_at": j + 1, "range": max(notes) - min(notes),
-            "onsets": n, "surprise": surprise, "compass": (lo, hi), "realised": hook_contour_class(notes),
-            "head": [degs[1] - degs[0], degs[2] - degs[1], degs[3] - degs[2]] if n >= 4 else []}
-
-
-HOOK_FAMILIES = ("chorus", "verse", "bridge", "prechorus")   # --hooks 1 | 2 | 3 | all: how many of these get their own hook
-HOOK_FAMILY_RANGE = {"chorus": HOOK_RANGE, "verse": (5, 8), "bridge": (7, 10), "prechorus": (5, 8)}
-
-
-def design_family(hrng: random.Random, mel: Melody, centre: int, key: int, mode: str, level: int, family: str,
-                  used: dict[str, dict], groove_cells: list[list[str]] | None, surprise_ok: bool) -> dict:
-    """One more hook for a section family under the contrast rules: a contour class no other hook has (designed
-    and realised), a rhythm no other hook has (from the groove's bank when there is one), its own compass; the
-    verse hook opens with the main hook's first three intervals (the resemblance rule); the pre-chorus hook is a
-    climb (rising when that class is free)."""
-    designed = {d["contour"] for d in used.values()}
-    taken = designed | {d.get("realised") for d in used.values()}
-    taken_cells = [tuple(d["cells"]) for d in used.values()]
-    head = used["chorus"]["head"] if family == "verse" and "chorus" in used else None
-    classes = [c for c, _ in HOOK_CONTOURS]
-    free_classes = [c for c in classes if c not in taken] or [c for c in classes if c not in designed] or classes
-    pick = None
-    for attempt in range(8):
-        if groove_cells:
-            free = [c for c in groove_cells if tuple(c) not in taken_cells] or groove_cells
-        else:
-            free = [list(c) for c in HOOK_RHYTHMS if tuple(c) not in taken_cells] or [list(c) for c in HOOK_RHYTHMS]
-        cells = list(hrng.choice(free))
-        if family == "prechorus" and "rising" in free_classes:
-            contour = "rising"                                 # the climb
-        else:
-            weights = [w for c, w in HOOK_CONTOURS if c in free_classes]
-            contour = hrng.choices(free_classes, weights=weights)[0]
-        d = design_hook(hrng, mel, centre, key, mode, level, contour=contour, cells=cells,
-                        rng_range=HOOK_FAMILY_RANGE[family], head=head, surprise_ok=surprise_ok)
-        if d["realised"] not in taken or attempt >= 5:
-            pick = d
-            break
-        pick = pick or d
-    pick["family"] = family
-    return pick
+            "onsets": n, "surprise": surprise, "compass": (lo, hi)}
 
 
 def mirror_motif(motif: list[tuple[int, int | None]]) -> list[tuple[int, int | None]]:
@@ -2029,35 +1957,6 @@ def hook_cell_metrics(notes: list[tuple[int, int, int]], row0: int, rows: int) -
             "notes_per_bar": round(len(cell) / (rows / 16), 2), "distinct_pitches": len(set(ps)), "names": names}
 
 
-def hook_metrics_at(sc: Score, bar0: int, bars: int = 2) -> dict:
-    """The metrics of the cell stated at `bar0` (0-based) and how often that exact cell is heard in the piece."""
-    notes = _lead_notes(sc)
-    nbars = len(sc.bars)
-    row0 = bar0 * 16
-    out = hook_cell_metrics(notes, row0, bars * 16)
-    cell = [n for n in notes if row0 <= n[0] < row0 + bars * 16]
-    sig = tuple((r - row0, p - cell[0][1]) for r, p, d in cell) if cell else ()
-    occ: list[int] = []
-    for b in range(0, nbars - bars + 1):
-        lo = b * 16
-        c = [n for n in notes if lo <= n[0] < lo + bars * 16]
-        if c and tuple((r - lo, p - c[0][1]) for r, p, d in c) == sig and (not occ or b >= occ[-1] + bars):
-            occ.append(b)
-    fpr = bpm_to_fpr(sc.bpm)
-    seconds = nbars * 16 * fpr / GB_FPS
-    out.update({"hook_bars": bars, "hook_repeats": len(occ), "occurrences": [b + 1 for b in occ],
-                "hook_per_minute": round(len(occ) / (seconds / 60), 2) if seconds else 0, "hook_first_s": round(row0 * fpr / GB_FPS, 1)})
-    verdict = {}
-    for k, (p10, p25, p75, p90) in HOOK_BANDS.items():
-        v = out.get(k)
-        if v is not None:
-            verdict[k] = "in" if p25 <= v <= p75 else "near" if p10 <= v <= p90 else "out"
-    out["bands"] = verdict
-    out["in_band"] = sum(1 for v in verdict.values() if v == "in")
-    out["out_of_band"] = sum(1 for v in verdict.values() if v == "out")
-    return out
-
-
 def hook_metrics(sc: Score) -> dict:
     """The hook metrics of a score's lead lane with each one's verdict against the corpus bands: 'in' the
     interquartile band, 'near' (inside p10..p90) or 'out'."""
@@ -2098,17 +1997,11 @@ class FormComposer:
     def __init__(self, rng: random.Random, brng: random.Random, key: int, bpm: float, name: str, flavour: str,
                  form: str, chorus_syms: list[str], bend: str, prog_name: str, texture: str = "plain", lift: str = "fifth",
                  phrases: int = 0, prng: random.Random | None = None, hook: int = 0, hrng: random.Random | None = None,
-                 groove: str = "straight", syncopation: int | None = None, hooks: int = 1, roles: set[str] | None = None) -> None:
+                 groove: str = "straight", syncopation: int | None = None) -> None:
         self.rng, self.brng, self.key, self.bpm, self.flavour, self.form, self.bend = rng, brng, key, bpm, flavour, form, bend
-        self.roles = roles                                             # the plan's section roles (--hooks designs only families that occur)
         self.chorus_syms, self.prog_name, self.texture = chorus_syms, prog_name, texture
         self.phrases = phrases if form != "blues12" else 0            # the blues keeps its aab head and solo
         self.hook_level = hook if form != "blues12" else 0            # --hook: the hook engine (set early: bank() reads it)
-        self.hooks_n = max(1, hooks) if self.hook_level else 1        # --hooks: how many section families get their own hook
-        self.family: dict[str, dict] = {}                              # family -> design (--hooks 2+)
-        self.hook_ids: dict[int, str] = {}                             # id(motif) -> family, for every hook stated note for note
-        self.hearings: dict[str, int] = {}
-        self.first_bar: dict[str, int] = {}
         self.prng = prng or random.Random(key * 48611 + 3)             # the phrase grammar's own stream
         self.banks: dict[str, dict] = {}
         self.pad_bars: set[int] = set()
@@ -2206,8 +2099,7 @@ class FormComposer:
         self.peak_fixes = 0
         if self.hook_level:
             design_centre = self.chorus_centre if form == "verse-chorus" else self.verse_centre
-            self.design = design_hook(self.hrng, self.mel, design_centre, key, self.mode, self.hook_level,
-                                      surprise_ok=self.hooks_n < 3)   # with a bridge hook the surprise lives there
+            self.design = design_hook(self.hrng, self.mel, design_centre, key, self.mode, self.hook_level)
             self.hook = self.design["motif"]
             derived = derive_verse(self.hook)
             self.verse_motif = self.hook if form == "aaba" else derived
@@ -2218,41 +2110,6 @@ class FormComposer:
             if self.phrases:
                 self.banks["hook"]["s"] = self.hook
                 self.banks["hook"]["cells"]["s"] = self.design["cells"]
-            self.hook_ids[id(self.hook)] = "chorus"
-            if self.hooks_n > 1:
-                self.design_families()
-
-    # ---- many hooks (--hooks 2|3|all): one hook per section family, each derived into its own sections
-    def design_families(self) -> None:
-        """Contrast rules: (1) no two hooks share a contour class; (2) no two share a rhythm; (3) each family has
-        its own register and compass (verse low and narrow, chorus the peak, bridge / stage C wide, pre-chorus a
-        narrow climb); (4) the chorus keeps the song's top note; (5) the verse hook opens with the chorus hook's
-        first three intervals so the song still sounds like one song. The surprise interval of level 3 lives in
-        the bridge hook when there is one."""
-        g = self.groove
-        groove_cells = [cells_from_rows(RHYTHMS[k]) for k in g["hooks"] + g["verse_hooks"]] if self.groove_name != "straight" else None
-        self.design["family"] = "chorus"
-        self.family = {"chorus": self.design}
-        roles = self.roles or {"verse", "bridge", "prechorus", "S2", "S3", "B"}
-        has = {"verse": bool(roles & {"verse", "S2"}), "bridge": bool(roles & {"bridge", "B", "S3"}), "prechorus": "prechorus" in roles}
-        plan = [f for f in ["verse"] + (["bridge"] if self.hooks_n >= 3 else []) + (["prechorus"] if self.hooks_n >= 4 else []) if has[f]]
-        self.families_skipped = [f for f in ("verse", "bridge", "prechorus")[:self.hooks_n - 1] if not has[f]]
-        for fam in plan:
-            centre = {"verse": self.verse_centre, "prechorus": self.verse_centre + 2,
-                      "bridge": self.chorus_centre if self.form == "stage" else self.bridge_centre}[fam]
-            self.family[fam] = design_family(self.hrng, self.mel, centre, self.key, self.mode, self.hook_level, fam,
-                                             self.family, groove_cells, surprise_ok=(fam == "bridge"))
-            self.hook_ids[id(self.family[fam]["motif"])] = fam
-        if "verse" in self.family:
-            v = self.family["verse"]["motif"]
-            if self.form != "aaba":
-                self.verse_motif = v
-            self.answer = second_bar_only(v)
-            self.stage_motifs[1] = v
-        if "bridge" in self.family:
-            b = self.family["bridge"]["motif"]
-            self.bridge_motif = b
-            self.stage_motifs[2] = b
 
     # ---- phrase grammar (--phrases): motif banks per section, pulse-2 answers
     def bank(self, name: str, role: str, span: int = 6) -> dict:
@@ -2267,11 +2124,6 @@ class FormComposer:
                     bk["s"] = self.hook
                 elif name in ("verse", "S2"):
                     bk["s"] = derive_verse(self.hook)
-                if self.hooks_n > 1:                             # --hooks: each family's bank states its own hook
-                    if name in ("verse", "S2") and "verse" in self.family:
-                        bk["s"] = self.family["verse"]["motif"]
-                    elif name in ("bridge", "S3") and "bridge" in self.family:
-                        bk["s"] = self.family["bridge"]["motif"]
                 if self.hook_level >= 2 and name != "bridge":    # the answer mirrors the statement, same rhythm and count
                     bk["a"] = mirror_motif(bk["s"])
         return self.banks[name]
@@ -2342,13 +2194,9 @@ class FormComposer:
         --hook the hook itself is never re-snapped (it repeats note for note, the harmony moves under it) and
         its bars are protected from the organic layer's pitch moves."""
         chords = [self.chord(syms[min(i, len(syms) - 1)])[2] for i in range(2)]
-        snap = not (self.hook_level and id(motif) in self.hook_ids)
+        snap = not (self.hook_level and motif is self.hook)
         if not snap:
-            fam = self.hook_ids[id(motif)]
-            if fam == "chorus":
-                self.hook_hearings += 1
-            self.hearings[fam] = self.hearings.get(fam, 0) + 1
-            self.first_bar.setdefault(fam, bar0)
+            self.hook_hearings += 1
             self.sc.protected.update((bar0, bar0 + 1))
         R = self.R
         cells = ["."] * (2 * R)
@@ -2685,19 +2533,14 @@ class FormComposer:
                 self.sc.put(b0 + 2, 0, 0, "." )
                 if self.hook_level >= 2:                         # the chord voice plays the hook's rhythm first (--hook 2)
                     self.put_hook_rhythm_chord(b0, sec.syms[0:2])
-                intro_centre = self.chorus_centre if self.hook_level and not (self.form == "stage" and self.hooks_n > 1) else self.verse_centre
-                self.put_lead(b0 + sec.bars - 2, self.hook, intro_centre,  # --hook: the hook is heard at pitch inside the first seconds
-                              sec.syms[-2:], "lead", rest_row=30)          # (--hooks on a stage loop: at A's pitch, where it is sung)
+                self.put_lead(b0 + sec.bars - 2, self.hook, self.chorus_centre if self.hook_level else self.verse_centre,
+                              sec.syms[-2:], "lead", rest_row=30)          # --hook: the hook is heard at pitch inside the first seconds
             elif role == "verse":
                 self.write_verse(sec, second=any(s.role == "verse" and s.start < sec.start for s in sections))
             elif role == "prechorus":
                 self.prechorus_count = getattr(self, "prechorus_count", 0) + 1
                 frag = fragment(self.hook, self.R)
-                if "prechorus" in self.family:                   # --hooks all: the pre-chorus climbs on its own cell
-                    frag = fragment(self.family["prechorus"]["motif"], self.R)
-                    self.hearings["prechorus"] = self.hearings.get("prechorus", 0) + sec.bars
-                    self.first_bar.setdefault("prechorus", b0)
-                elif self.phrases >= 2 and self.prechorus_count == 2:   # the second pre-chorus climbs on the hook's answer
+                if self.phrases >= 2 and self.prechorus_count == 2:   # the second pre-chorus climbs on the hook's answer
                     frag = fragment(self.bank("hook", "chorus")["a"], self.R)
                     if not motif_notes(frag):
                         frag = fragment(self.hook, self.R)
@@ -2736,24 +2579,8 @@ class FormComposer:
                 self.write_blues_solo(sec)
         self.sc.loop = sections[0].bars if sections[0].role == "intro" else 0
         self.sc.sections = [(s.role, s.start, s.bars) for s in sections]
-        if self.hook_level >= 2 or self.hooks_n > 1:
+        if self.hook_level >= 2:
             self.enforce_peak(sections)
-
-    def hooks_info(self) -> list[dict]:
-        """One record per family hook (--hooks 2+): the design, the hum test, where it is first stated and how
-        often note for note (the measured metrics are added after the organic layer)."""
-        out = []
-        for fam, d in self.family.items():
-            centre = {"chorus": self.chorus_centre if self.form == "verse-chorus" else self.verse_centre, "verse": self.verse_centre,
-                      "prechorus": self.verse_centre + 2, "bridge": self.chorus_centre if self.form == "stage" else self.bridge_centre}[fam]
-            notes = [midi_to_note(self.mel.note(centre, deg)) for _, deg in motif_notes(d["motif"])]
-            out.append({"family": fam, "level": self.hook_level, "contour": d["contour"], "realised_contour": d.get("realised"),
-                        "names": notes, "range": d["range"], "rhythm": d["cells"], "onsets": d["onsets"], "leap_at": d["leap_at"],
-                        "surprise": d["surprise"], "register": midi_to_note(self.mel.notes[min(len(self.mel.notes) - 1, max(0, centre))]),
-                        "hearings": self.hearings.get(fam, 0), "first_bar": (self.first_bar[fam] + 1) if fam in self.first_bar else None,
-                        "sections": {"chorus": "chorus / stage A / aaba A, intro and outro quotes", "verse": "verse / stage B",
-                                     "bridge": "bridge / middle eight / stage C", "prechorus": "pre-chorus climb (its first bar, sequenced up a step per bar; hearings = bars)"}[fam]})
-        return out
 
     # ---- hooks (--hook)
     def put_hook_rhythm_chord(self, bar0: int, syms: list[str]) -> None:
@@ -2853,9 +2680,6 @@ class FormComposer:
         if self.hook_level >= 2:                                 # melodic math: a line, its mirror, the line changed, the mirror cadencing
             a = mirror_motif(m)
             phrases = [m, a, third_time(m, 1), cadence(a, self.mel, self.verse_centre)]
-        if id(m) in self.hook_ids:                               # --hooks: the verse hook twice, its mirror, the mirror cadencing
-            a = mirror_motif(m)
-            phrases = [m, m, a, cadence(a, self.mel, self.verse_centre)]
         if second:                                               # ... except for one note in bar 4 and the ending
             phrases[1] = vary_last(r, random.Random(self.key * 131 + 8))
             phrases[3] = transpose(c, self.mel.octave) if self.flavour != "rock" else vary_last(c, rng)
@@ -2877,10 +2701,7 @@ class FormComposer:
             s, a, d = second_bar_only(s), second_bar_only(a), second_bar_only(d)
         rng = random.Random(self.key * 131 + 7)
         c = self.verse_centre
-        if id(s) in self.hook_ids:                               # --hooks: the verse hook twice; verse 2 re-orders around it
-            phrases = [s, s, a, cadence(d, self.mel, c)] if not second else [s, a, s, cadence(s, self.mel, c)]
-            insts = ["lead", "lead", "lead2", "lead"] if not second else ["lead", "lead2", "lead", "lead"]
-        elif not second:
+        if not second:
             phrases = [s, vary_last(s, rng), a, cadence(d, self.mel, c)]
             insts = ["lead", "lead", "lead2", "lead"]
         elif self.phrases >= 2:
@@ -2971,9 +2792,9 @@ class FormComposer:
         p2 = [motif, cadence(motif, self.mel, centre)]
         insts = [inst] * 4
         if self.hook_level and not self.phrases:
-            if id(motif) in self.hook_ids:                        # A and C state the hook (--hooks: B its own): twice, the third changed, cadence
+            if motif is self.hook:                                # A and C state the hook: twice, the third changed, cadence
                 p1 = [motif, motif]
-                p2 = [third_time(motif, self.hook_level if motif is self.hook else 1), cadence(motif, self.mel, centre)]
+                p2 = [third_time(motif, self.hook_level), cadence(motif, self.mel, centre)]
             elif self.hook_level >= 2:                            # B: the preview and its mirror, paired
                 a = mirror_motif(motif)
                 p1 = [motif, a]
@@ -2982,14 +2803,14 @@ class FormComposer:
             k = int(sec.role[1]) - 1
             bk = self.bank(sec.role, sec.role)
             s, a = bk["s"], bk["a"]
-            if k > 0 and f"S{k}" in self.banks and id(s) not in self.hook_ids:   # bar 1 quotes the previous section's answer a step away
+            if k > 0 and f"S{k}" in self.banks and s is not self.hook:   # bar 1 quotes the previous section's answer a step away
                 s = quote_then_new(self.banks[f"S{k}"]["a"], s, 1 if k == 2 else -1)
             p1 = [s, thin(vary_last(s, rng), rng) if self.phrases >= 2 else vary_last(s, rng)]
             p2 = [a, cadence(bk["d"] if self.phrases >= 2 else a, self.mel, centre)]
             insts = [inst, inst, self.alt_inst(inst), inst]
-            if id(s) in self.hook_ids:                            # --hook: the hook section is the hook twice, the third changed, the cadence
+            if s is self.hook:                                    # --hook: the hook section is the hook twice, the third changed, the cadence
                 p1 = [s, s]
-                p2 = [third_time(s, self.hook_level if s is self.hook else 1), cadence(s, self.mel, centre)]
+                p2 = [third_time(s, self.hook_level), cadence(s, self.mel, centre)]
                 insts = [inst] * 4
         for k, ph in enumerate(p1 + p2):
             bar = b0 + k * 2
@@ -3004,16 +2825,11 @@ class FormComposer:
         m = self.bridge_motif
         phrases = [m, vary_last(m, random.Random(self.key * 59 + 1)), transpose(m, -2), cadence(m, self.mel, self.bridge_centre)]
         insts = ["lead"] * 4
-        if id(m) in self.hook_ids:                                # --hooks 3+: the bridge hook twice, the third changed, the cadence
-            phrases = [m, m, third_time(m, 1), cadence(m, self.mel, self.bridge_centre)]
         if self.phrases:                                          # sparse bank, the statement on the second colour
             bk = self.bank("bridge", "bridge", span=4)
             rng = random.Random(self.key * 59 + 1)
             phrases = [bk["s"], bk["a"], thin(bk["s"], rng), cadence(bk["d"], self.mel, self.bridge_centre)]
             insts = ["lead2", "lead", "lead2", "lead"]
-            if id(bk["s"]) in self.hook_ids:
-                phrases = [bk["s"], bk["s"], third_time(bk["s"], 1), cadence(bk["s"], self.mel, self.bridge_centre)]
-                insts = ["lead"] * 4
         for k in range(sec.bars // 2):
             self.put_lead(b0 + k * 2, phrases[k % 4], self.bridge_centre, sec.syms[k * 2:k * 2 + 2], insts[k % 4])
             self.put_response(b0 + k * 2, phrases[k % 4], self.bridge_centre, sec.syms[k * 2:k * 2 + 2])
@@ -3043,7 +2859,7 @@ class FormComposer:
 def gen_form(rng: random.Random, key: int, bpm: float, bars: int, name: str, bend: str, brng: random.Random,
              style: str, form: str, progression: str | None, texture: str = "plain", lift: str = "fifth",
              phrases: int = 0, prng: random.Random | None = None, hook: int = 0, hrng: random.Random | None = None,
-             groove: str = "straight", syncopation: int | None = None, hooks: int = 1) -> tuple[Score, list[str], dict]:
+             groove: str = "straight", syncopation: int | None = None) -> tuple[Score, list[str], dict]:
     """The song-form generator behind --style pop|rock|chip|ska with --form stage|verse-chorus|aaba|blues12,
     --texture plain|fusion, --lift fifth|sixth|octave, --phrases 0|1|2 (the motif banks), --hook 0..3 (the hook
     designed first, the melodies derived from it), --groove and --syncopation (the rhythm of a genre)."""
@@ -3067,8 +2883,7 @@ def gen_form(rng: random.Random, key: int, bpm: float, bars: int, name: str, ben
         raise ScoreError(f"--form blues12 needs a twelve-chord progression (blues12 or blues12q), got {len(syms)} chords")
     mode = _mode_scale(syms)
     plan = build_plan(form, bars, syms, mode, rng, extra)
-    fc = FormComposer(rng, brng, key, bpm, name, flavour, form, syms, bend, prog_name, texture, lift, phrases, prng, hook, hrng, groove, syncopation, hooks,
-                      {sec.role for sec in plan})
+    fc = FormComposer(rng, brng, key, bpm, name, flavour, form, syms, bend, prog_name, texture, lift, phrases, prng, hook, hrng, groove, syncopation)
     fc.write(plan)
     if fc.phrases:
         fc.meta.append(f"phrases {fc.phrases}: motif banks " + ", ".join(f"{k} (s a d)" for k in fc.banks)
@@ -3078,18 +2893,9 @@ def gen_form(rng: random.Random, key: int, bpm: float, bars: int, name: str, ben
         fc.meta.append(f"hook {fc.hook_level}: {d['contour']} contour, {d['range']} semitones, rhythm " + " ".join(d["cells"])
                        + f", leap at note {d['leap_at']}, heard {fc.hook_hearings} times note for note, third time changed"
                        + (f"; surprise {d['surprise']}" if d["surprise"] else "")
-                       + (f"; {fc.peak_fixes} note{"s" if fc.peak_fixes != 1 else ""} lowered so the chorus holds the top note" if fc.peak_fixes else ""))
-        for h in fc.hooks_info():
-            if h["family"] != "chorus":
-                fc.meta.append(f"hook ({h['family']}): {h['contour']} contour, {h['range']} semitones, around {h['register']}, rhythm " + " ".join(h["rhythm"])
-                               + f", {' '.join(h['names'])}, first in bar {h['first_bar']}, heard {h['hearings']} times note for note"
-                               + (f"; surprise {h['surprise']}" if h["surprise"] else ""))
+                       + (f"; {fc.peak_fixes} notes lowered so the chorus holds the top note" if fc.peak_fixes else ""))
     elif hook:
         fc.meta.append("hook: ignored (the twelve-bar blues keeps its aab head and solo)")
-    if hooks > 1 and not fc.hook_level:
-        fc.meta.append("hooks: ignored (the twelve-bar blues keeps its aab head and solo)")
-    elif getattr(fc, "families_skipped", []):
-        fc.meta.append("hooks: no " + " / ".join(fc.families_skipped) + " hook: the plan has no such section (a 64-bar verse-chorus has a bridge)")
     prog_label = " | ".join(f"{n}: {' '.join(s)}" for n, s in progs) if len(progs) > 1 else f"{prog_name}: {' '.join(syms)}"
     meta = [f"form {form}, {sum(s.bars for s in plan)} bars, loop -> bar {fc.sc.loop + 1}, texture {texture}"
             + (f", groove {groove} (syncopation {fc.sync}, {fc.R} rows per bar)" if groove != "straight" or fc.sync else "") + f"; progression {prog_label}"
@@ -3103,7 +2909,6 @@ def gen_form(rng: random.Random, key: int, bpm: float, bars: int, name: str, ben
             "progressions": [{"name": n, "numerals": s, "chords": numerals_to_names(s, key)} for n, s in progs],
             "mode": mode, "loop_bar": fc.sc.loop, "phrases": fc.phrases,
             "hook": fc.hook_info() if fc.hook_level else ({"ignored": "the twelve-bar blues keeps its aab head and solo"} if hook else {}),
-            "hooks": fc.hooks_info() if fc.hooks_n > 1 else ([{"ignored": "the twelve-bar blues keeps its aab head and solo"}] if hooks > 1 else []),
             "banks": {k: {"s": v["cells"]["s"], "a": v["cells"]["a"], "d": v["cells"]["d"]} for k, v in fc.banks.items()},
             "pulse2_answers": fc.responses,
             "plan": [{"section": s.label, "role": s.role, "start_bar": s.start + 1, "bars": s.bars,
@@ -4347,10 +4152,6 @@ def cmd_generate(args: argparse.Namespace) -> int:
     prng = random.Random(args.seed * 48611 + 3)   # the phrase grammar's stream: --phrases 0 leaves every other draw untouched
     hrng = random.Random(args.seed * 7001 + 11)   # the hook engine's stream: --hook 0 leaves every other draw untouched
     hook = getattr(args, "hook", 0)
-    hooks = {"1": 1, "2": 2, "3": 3, "all": 4}[str(getattr(args, "hooks", "1"))]
-    hook_implied = False
-    if hooks > 1 and not hook:
-        hook, hook_implied = 2, True                          # several hooks need the hook engine: level 2 unless told otherwise
     uses_groove = groove != "straight" or args.syncopation
     if uses_groove and (args.style in ("fusion", "ambient") or (args.style == "chip" and form == "loop")):
         sys.exit(f"compose.py: --groove / --syncopation apply to the song forms (pop, rock, ska, chip with --form); --style {args.style} --form {form} carries its own rhythm")
@@ -4363,7 +4164,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
             if args.progression:
                 sys.exit("compose.py: --progression needs a song form (--form stage|verse-chorus|aaba|blues12); the loop styles carry their own harmony")
             if args.style in ("pop", "rock", "ska"):
-                sc, meta, info = gen_form(rng, key, float(args.bpm), args.bars, name, args.bend, brng, args.style, STYLE_DEFAULT_FORM[args.style], None, args.texture, args.lift, args.phrases, prng, hook, hrng, groove, args.syncopation, hooks)
+                sc, meta, info = gen_form(rng, key, float(args.bpm), args.bars, name, args.bend, brng, args.style, STYLE_DEFAULT_FORM[args.style], None, args.texture, args.lift, args.phrases, prng, hook, hrng, groove, args.syncopation)
             else:
                 if args.texture != "plain":
                     sys.exit(f"compose.py: --texture applies to the song forms (pop, rock, chip with --form); --style {args.style} --form loop is already its own texture")
@@ -4385,7 +4186,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         elif args.style == "ambient":
             sys.exit("compose.py: --style ambient has no song form (it is a bed); use --form loop")
         else:
-            sc, meta, info = gen_form(rng, key, float(args.bpm), args.bars, name, args.bend, brng, args.style, form, args.progression, args.texture, args.lift, args.phrases, prng, hook, hrng, groove, args.syncopation, hooks)
+            sc, meta, info = gen_form(rng, key, float(args.bpm), args.bars, name, args.bend, brng, args.style, form, args.progression, args.texture, args.lift, args.phrases, prng, hook, hrng, groove, args.syncopation)
     except ScoreError as exc:
         sys.exit(f"compose.py: {exc}")
     info.setdefault("groove", groove)
@@ -4406,13 +4207,6 @@ def cmd_generate(args: argparse.Namespace) -> int:
         meta = [*meta, f"pan {args.pan}: {pan_rep['events']} pan events ({', '.join(f'{k} {v}' for k, v in sorted(pan_rep['marks'].items()))}"
                 + (f"; echo voice right x{pan_rep['echo_sides']}" if pan_rep["echo_sides"] else "") + ("; verse pad auto-pan" if pan_rep["pad_auto"] else "")
                 + "); centre by default, never the bass or the kit, mono on the handheld speaker"]
-    if hooks > 1 and info.get("hooks") and "family" in info["hooks"][0]:   # the measured metrics of every family hook
-        for h in info["hooks"]:
-            if h.get("first_bar") and h["family"] != "prechorus":
-                h["metrics"] = hook_metrics_at(sc, h["first_bar"] - 1, 2)
-        info["hook_implied"] = hook_implied
-        meta = [*meta, "hooks: " + "; ".join(f"{h['family']} {h['metrics'].get('hook_repeats', 0)}x, range {h['metrics'].get('range')}, {h['metrics'].get('contour')}"
-                                            for h in info["hooks"] if h.get("metrics"))]
     if hook and "level" in info.get("hook", {}):               # the measured hook metrics against the corpus bands
         m = hook_metrics(sc)
         info["hook"]["metrics"] = m
@@ -4424,7 +4218,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 f"{m.get('in_band', 0)} metrics in the corpus band, {m.get('near_band', 0)} near, {m.get('out_of_band', 0)} out"]
     text = sc.text([f"style {args.style}, key {PC_NAME[key]}, {args.bpm:g} bpm, seed {args.seed}, bends {args.bend}"
                     + (f", form {form}" if form != "loop" else "") + (f", phrases {args.phrases}" if args.phrases else "")
-                    + (f", hook {hook}" if hook else "") + (f", hooks {args.hooks}" if hooks > 1 else "")
+                    + (f", hook {hook}" if hook else "")
                     + (f", organic {args.organic}" if args.organic else "")
                     + (f", pan {args.pan}" if args.pan != "none" else ""), *meta])
     out = Path(args.out)
@@ -4871,12 +4665,6 @@ def main() -> int:
                         "3 = + the earworm surprise: one unusual interval (a sixth or a tritone, resolved by step) in the hook, the final note delayed an 8th "
                         "the last time, the bass quotes the hook under the bridge / B section. fusion, ambient and blues12 ignore it (and say so); "
                         "the report's `hook` block carries the design and the measured metrics against the corpus bands")
-    g.add_argument("--hooks", default="1", choices=("1", "2", "3", "all"),
-                   help="how many section families get a hook of their own (default 1 = one hook, as --hook describes; 2+ needs --hook and implies --hook 2 when it is 0): "
-                        "2 = + a verse hook (its own contour class, a lower and narrower register, opening with the chorus hook's first three intervals; stage B); "
-                        "3 = + a bridge / middle-eight / stage-C hook (a third class, its own register; the level-3 surprise interval lives here); "
-                        "all = + a pre-chorus climb cell of its own. Contrast rules: no two hooks share a contour class or a rhythm, the chorus keeps the song's top note, "
-                        "every hook's bars are protected from the organic layer; the report's `hooks` lists each family with its hum test and metrics")
     g.add_argument("--groove", default="straight", help="straight (default: as before) | swing | shuffle | ska | onedrop | funk | dance | tropical | latin | halftime: the kit, bass rhythm, pulse-2 stab rhythm and hook rhythm bank of a genre, with a tempo band (`compose.py styles`); swing / shuffle write 12-row bars (a triplet grid)")
     g.add_argument("--syncopation", type=int, default=None, choices=(0, 1, 2, 3),
                    help="anticipations, off-beat pushes and strong-beat rests on the hook, bass and kick/snare (default: the groove's own level, straight = 0 = as before): 0 kick/snare on the beats and the hook on the 8th grid; 1 the groove's pattern + the hook anticipates its second-bar downbeat and the bass pushes chord changes; 2 medium (the groove research's sweet spot): + the and-of-3 kick, the and-of-2 lean, a pickup before the hook; 3 funk: + off-16th ghosts and pops")

@@ -635,32 +635,6 @@ generate `--style rock --form stage --hook 2`, copy the hook's two bars from the
 octave or two down (the `bass:` cells, `@bass` on the first, `!4` cuts on the 8ths) and onto the arp lane an octave
 up with `!5`, and leave the lead its answer in bars 3-4; `--hook 3` already writes that bass quote under the B section.
 
-**Many hooks (`--hooks 1|2|3|all`; default 1 = the one hook above).** The corpora do not live on one cell: a stage
-loop carries a median of 2 distinct repeated cells, the handheld RPG's songs 3, the author's catchy picks 5 (a verse
-figure, a pre-chorus climb, the chorus hook, a tag), spanning three contour classes within a song. `--hooks 2`
-adds a **verse hook** (its own contour class, a lower and narrower register of 5-8 semitones, the groove's hook
-rhythm bank when a groove is set; it opens with the chorus hook's first three intervals, the resemblance rule, so
-the song still sounds like one song; stage B takes it), `3` adds a **bridge hook** (the middle eight, the 64-bar
-song's bridge, stage C: a third class, its own register, 7-10 semitones; at `--hook 3` the surprise interval moves
-here and the chorus hook stays clean), `all` adds a **pre-chorus climb cell** (rising when that class is free; its
-first bar is sequenced up a step per bar). Each family states its hook twice, changes it the third time and
-cadences; the intro and outro still quote the chorus hook; a family whose section the plan does not have is
-skipped and the header says so (a 48-bar verse-chorus has no bridge; aaba has no verse: its A theme is the chorus
-hook and its B the bridge hook). `--hooks 2+` with `--hook 0` implies `--hook 2`. The contrast rules, enforced:
-
-1. No two hooks share a contour class (designed, and realised where the classes allow), nor a rhythm.
-2. Each has its own register and compass: verse low and narrow, chorus the peak, bridge wide, pre-chorus a climb.
-3. The chorus holds the song's top note; any other section's note that reaches it is lowered a scale step.
-4. Every hook's bars are protected from the organic layer's pitch moves; `--pan call` sides the answers as before;
-   `--phrases` banks take each family's hook as their statement.
-5. The verse hook resembles the chorus hook by its first three intervals; everything else about it differs.
-
-When to use which: a 16-24-bar stage loop wants `1` (or `3`: one per section, as the stage corpus contrasts A B C);
-a 48-bar song `2`; a 64-bar song with a bridge `3`; a three-minute pop or ska song with pre-choruses `all`. Read
-`hooks` in the report: one record per family with `contour`, `names` (its hum test), `range`, `register`,
-`rhythm`, `first_bar`, `hearings` and `metrics` against the corpus bands; `hook` stays the chorus hook.
-`docs/check_flags.py` generates every style with every flag on (the regression check for the flavour tables).
-
 **Read the report** (`hook` in the generate JSON; the header comments say the same): `contour`, `range`,
 `rhythm` (the eight cells), `leap_at`, `surprise`, `hearings` (statements written note for note), `names`
 (the hum test: the hook as note names), `climax_bar`, `step_leap`, and `metrics`: the hook as measured on the

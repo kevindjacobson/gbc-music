@@ -182,17 +182,6 @@ of its rows rests), the pre-chorus widens to 12 semitones and lifts, the chorus 
 on one four-8th rhythm from beat 3 at the end of every verse and at both ends of every chorus, first at 13.6 s.
 On a pop brief that lift says `--lift octave`; the game corpora's fifth is the loop default.
 
-**One hook or several?** Counting the distinct repeated cells of each piece (find the most repeated cell, remove
-the bars it occupies, find the next, until nothing repeats twice; capped at six): the stage corpus's themes carry a
-median of 2 distinct repeated cells (quartiles 0.5-4; five of nineteen have none that repeats exactly, their
-sections are through-composed over a riff), the handheld RPG's songs 3 (1-5), and the author's thirteen catchy
-picks 5 (4-6): a three-minute song has a verse figure, a pre-chorus climb, a chorus hook and a tag or two; the
-melodic-math single has six, the late-1960s riff single exactly one (the riff), the console storefront theme and
-the beat-em-up stage theme three. Within a song the distinct cells span 3 contour classes in the RPG and the
-picks (mode), 1 in the stage loops. Rule: a 24-bar stage loop wants one hook (or three, one per section, as the
-stage corpus's A B C does by harmony); a verse-chorus song wants two or three; a four-minute song four.
-`--hooks 2|3|all` gives each section family its own, under the contrast rules in SKILL §11.
-
 What the literature adds (the pop-writing school known for its "melodic math", the earworm studies, the melody
 craft texts; `research_notes` keep the citations): melody first and lyrics fitted to it syllable by syllable;
 lines that mirror each other in syllable count and rhythm (an ABAB four-line chorus is the school's most common

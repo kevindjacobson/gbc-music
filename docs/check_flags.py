@@ -16,12 +16,12 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
 COMPOSE = SKILL / "scripts" / "compose.py"
-ALL_ON = "--phrases 2 --hook 3 --hooks all --organic 3 --pan wide --syncopation 2"
+ALL_ON = "--phrases 2 --hook 3 --organic 3 --pan wide --syncopation 2"
 SETS = [
     f"--style ska --key G --bpm 180 --bars 48 --seed 101 {ALL_ON}",
     f"--style ska --key C --bpm 200 --bars 64 --seed 7 --progression doowop {ALL_ON}",
-    f"--style ska --key F --bpm 176 --bars 32 --seed 9 --form aaba --phrases 2 --hook 2 --hooks 2 --organic 2 --pan call",
-    f"--style ska --key A --bpm 168 --bars 28 --seed 3 --form stage --phrases 1 --hook 3 --hooks 3 --organic 2 --pan echo --texture fusion",
+    f"--style ska --key F --bpm 176 --bars 32 --seed 9 --form aaba --phrases 2 --hook 2 --organic 2 --pan call",
+    f"--style ska --key A --bpm 168 --bars 28 --seed 3 --form stage --phrases 1 --hook 3 --organic 2 --pan echo --texture fusion",
     f"--style pop --key C --bpm 120 --bars 64 --seed 1 --progression axis {ALL_ON}",
     f"--style pop --key G --bpm 100 --bars 48 --seed 5 --groove tropical {ALL_ON}",
     f"--style pop --key D --bpm 128 --bars 48 --seed 2 --groove dance --texture fusion {ALL_ON}",
