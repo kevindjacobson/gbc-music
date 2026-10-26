@@ -1547,7 +1547,7 @@ PHRASE_DENSITY = {"intro": 0.8, "verse": 1.0, "prechorus": 1.3, "chorus": 1.5, "
 PHRASE_LEAD2 = {"pop": "inst lead2 pulse duty=25 env=C3 vib=2:4", "chip": "inst lead2 pulse duty=25 env=B2 vib=2:4",
                 "rock": "inst lead2 pulse duty=25 env=D3 vib=3:3", "blues": "inst lead2 pulse duty=25 env=C3 vib=3:3",
                 "fusion": "inst lead2 pulse duty=25 env=C3 vib=2:3",
-                "ska": "inst lead2 pulse duty=12 env=C3 vib=2:4"}   # a thin horn-like answer voice
+                "ska": "inst lead2 pulse duty=12 env=C3 vib=1:4"}   # a thin horn-like answer voice
 
 
 def _cell_state(cell: str) -> str:
@@ -2033,7 +2033,7 @@ class FormComposer:
             "blues": ["inst lead pulse duty=50 env=C2 vib=3:3", "inst hook pulse duty=25 env=D2 vib=3:2",
                       "inst arp pulse duty=25 env=A1", "inst pad pulse duty=25 env=70",
                       "inst bass wave vol=13 shape=saw", "inst bassr wave vol=12 shape=tri"],
-            "ska": ["inst lead pulse duty=25 env=C2 vib=2:4", "inst hook pulse duty=12,25 rate=3 env=D7 vib=2:3",
+            "ska": ["inst lead pulse duty=25 env=C2 vib=1:4", "inst hook pulse duty=25 env=D7 vib=1:3",   # depth-1 vibrato and a plain duty: the ska lead sits high, where period-unit vibrato is deep and a 12/25 duty flicker reads flat (listened)
                     "inst arp pulse duty=25 env=90", "inst pad pulse duty=12 env=60",
                     "inst bass wave vol=12 shape=rsaw", "inst bassr wave vol=11 shape=tri"],
         }[flavour]
@@ -2224,7 +2224,7 @@ class FormComposer:
                 elif hold_vib and fusion and self.rng.random() < 0.4:
                     cell += "^2"                                          # fusion: a trill on the arrival note
                 elif hold_vib:
-                    cell += "~"
+                    cell += "~1" if self.flavour == "ska" else "~"   # ska: depth 1 on the high arrival notes (listened)
             if row < 0:
                 pickup = cell
                 continue
