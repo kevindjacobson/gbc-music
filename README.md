@@ -17,7 +17,9 @@ Four-channel music for the Game Boy Color, from a one-line idea to a cartridge R
   singable compass, one placed leap, a rhythm with one anticipation and a breath), repeats note for note with the
   third statement changed, and the verse, pre-chorus, intro and outro derive from it; the report measures the
   hook (length, hearings per minute, range, contour, steps and leaps, climax) against bands taken from two
-  classic game soundtracks.
+  classic game soundtracks. `--hooks 2|3|all` gives the verse, the bridge or stage C and the pre-chorus hooks of
+  their own (distinct contour classes and rhythms, the chorus kept as the peak, the verse hook opening with the
+  chorus hook's first intervals), each with its hum test and metrics in the report.
 - **Three outputs from one score**: a `.gbc` player ROM for real hardware or any emulator, a General MIDI `.mid`
   for a DAW, and a `.wav` / `.mp3` rendered through a cycle-exact emulation of the chip.
 - A **listener** that runs the ROM headlessly, isolates each channel and reports what actually sounds, plus an
@@ -104,6 +106,7 @@ python $SKILL/scripts/compose.py generate --style fusion --key F# --bpm 100 --ba
 python $SKILL/scripts/compose.py generate --style ambient --key D --bpm 84 --bars 16 --seed 2 --bend none --out bed.txt            # a quiet bed
 python $SKILL/scripts/compose.py generate --style pop --key G --bpm 128 --bars 48 --seed 9 --progression "I bVII IV I" --out own.txt   # your own numerals
 python $SKILL/scripts/compose.py generate --style pop --key C --bpm 120 --bars 48 --seed 1 --progression axis --hook 3 --organic 2 --out hook.txt --report hook.json   # the hook designed first, measured against the corpora
+python $SKILL/scripts/compose.py generate --style ska --key G --bpm 180 --bars 48 --seed 101 --hook 3 --hooks 3 --phrases 2 --organic 2 --pan call --syncopation 2 --out ska.txt --report ska.json   # a hook per section family
 python $SKILL/scripts/compose.py generate --style rock --key A --bpm 112 --bars 40 --seed 5 --form blues12 --pan call --out call.txt   # the call left, the answer right (headphones, WAV, MIDI CC10)
 python $SKILL/scripts/compose.py generate --style ska --key C --bpm 168 --bars 48 --seed 2 --organic 2 --out ska.txt                     # ska: the skank, walking bass, horn hook
 python $SKILL/scripts/compose.py generate --style pop --groove tropical --key F --bpm 100 --bars 48 --seed 3 --organic 2 --out hit.txt   # a 2010s pop hit: dembow, tresillo bass, plucked hook

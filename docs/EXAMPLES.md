@@ -251,3 +251,27 @@ the hook); the pre-chorus build (16th hats, the snare lift, the bass walking the
 (dembow kick and snare, the 0-6-12 bass, the plucked hook on pulse 1 anticipating the next downbeat on the last
 16th, pulse 2 plucking the chord on the hook's off-beat rows); then the twin, which has the notes and none of the
 bounce.
+
+## 13. Ska at 180 bpm with every flag on and a hook per section family (`--hooks 3`)
+
+```
+export SKILL=/path/to/skills/gbc-music
+mkdir ex13 && cd ex13
+python $SKILL/scripts/compose.py generate --style ska --key G --bpm 180 --bars 64 --seed 101 --hook 3 --hooks 3 --phrases 2 --organic 2 --pan call --syncopation 2 --out ska.txt --report gen.json
+python $SKILL/scripts/song_rom.py ska.txt --out ska.gbc --title "Ska Hooks"
+python $SKILL/scripts/song_midi.py ska.txt --out ska.mid
+python $SKILL/scripts/audio_probe.py --rom ska.gbc --out probe --pre wait:60 --seconds 10
+```
+Produced: 64 bars on the ska groove (intro 4, verse 8, pre-chorus 4, chorus 8, verse 8, pre-chorus 4, chorus 8,
+bridge 8, chorus 8, outro 4; loop at bar 5; 85.3 s a loop), 1496 note cells, 5778 ROM bytes, 8 pan events, lead
+syncopation 1.83. Three hooks, none sharing a shape or a rhythm: the **chorus** hook `G4 F#4 F#4 F#4 E4 B4 A4 A4 A4
+G4` (7 semitones around F#4, rhythm `x.x. x.xx x... x..x .... x... x... ..-.`, heard 7 times note for note, 4.9 a
+minute, first at bar 3, 10 metrics in band, 0 out), the **verse** hook `D4 C4 C4 C4 A3 A3 A3 B3 B3 B3` (falling, 5
+semitones, around B3, the groove's horn-line rhythm, opening with the chorus hook's first intervals, heard 4 times),
+the **bridge** hook `G3 E4 D4 C4 D4 C4 C4 B3 A3 A3 G3` (arch, 9 semitones, around F#3, a sixth up at note 2
+resolved by step: the surprise lives here, heard twice in the bridge); one note elsewhere lowered so the chorus
+keeps the song's top note (bar 21). The MIDI has 312 lead notes and 8 pan events; the probe hears four channels in
+the play window, 132 pitch changes, 36 distinct pitches and 40 drum hits in 10 s.
+Listen for: three tunes that are plainly one song (the verse opens like the chorus, a fifth lower), the skank
+and the walking bass under all of them, the pans on the call-and-response answers, and the sixth in the bridge.
+

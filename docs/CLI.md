@@ -151,10 +151,10 @@ usage: compose.py generate [-h] [--style STYLE] [--key KEY] [--bpm BPM]
                            [--bend {none,normal,sparse}] [--form FORM]
                            [--progression NAME|NUMERALS] [--texture TEXTURE]
                            [--lift {fifth,octave,sixth}] [--phrases {0,1,2}]
-                           [--hook {0,1,2,3}] [--groove GROOVE]
-                           [--syncopation {0,1,2,3}] [--organic {0,1,2,3}]
-                           [--pan {call,echo,none,wide}] [--name NAME] --out
-                           OUT [--report REPORT]
+                           [--hook {0,1,2,3}] [--hooks {1,2,3,all}]
+                           [--groove GROOVE] [--syncopation {0,1,2,3}]
+                           [--organic {0,1,2,3}] [--pan {call,echo,none,wide}]
+                           [--name NAME] --out OUT [--report REPORT]
 
 options:
   -h, --help            show this help message and exit
@@ -220,6 +220,20 @@ options:
                         fusion, ambient and blues12 ignore it (and say so);
                         the report's `hook` block carries the design and the
                         measured metrics against the corpus bands
+  --hooks {1,2,3,all}   how many section families get a hook of their own
+                        (default 1 = one hook, as --hook describes; 2+ needs
+                        --hook and implies --hook 2 when it is 0): 2 = + a
+                        verse hook (its own contour class, a lower and
+                        narrower register, opening with the chorus hook's
+                        first three intervals; stage B); 3 = + a bridge /
+                        middle-eight / stage-C hook (a third class, its own
+                        register; the level-3 surprise interval lives here);
+                        all = + a pre-chorus climb cell of its own. Contrast
+                        rules: no two hooks share a contour class or a rhythm,
+                        the chorus keeps the song's top note, every hook's
+                        bars are protected from the organic layer; the
+                        report's `hooks` lists each family with its hum test
+                        and metrics
   --groove GROOVE       straight (default: as before) | swing | shuffle | ska
                         | onedrop | funk | dance | tropical | latin |
                         halftime: the kit, bass rhythm, pulse-2 stab rhythm
